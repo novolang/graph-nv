@@ -1,0 +1,251 @@
+// grwalk.nv — the traversals: breadth first, depth first, topological
+// order, strongly connected components, and the components of an
+// undirected graph.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// **EVERY TRAVERSAL TAKES A NODE FILTER, AND THAT IS NOT A
+// CONVENIENCE.**  The first real consumer of this package walks a graph
+// of territories and asks which of them are reachable from a
+// headquarters *across territories one faction owns* — a breadth-first
+// search whose frontier is filtered by a predicate the graph itself
+// knows nothing about.  Every graph walk in a real program is that
+// walk: reachable through nodes that are still installed, through
+// modules that compile, through roads that are open.
+//
+// A library without the filter makes its caller build a subgraph first,
+// which allocates a copy of a structure it is about to walk once.  So
+// the filter is `fn(Int) -> Bool` — a NAMED function the caller
+// supplies, not a lambda, because a lambda that becomes a value is
+// refused at the embedded tier and because a named function is what
+// reads at a call site.  `all_nodes` is the honest "no filter", and it
+// is published so a caller that has none does not write one.
+//
+// AN ORDER IS A LIST OF INDICES AND NOTHING ELSE.  No callbacks, no
+// iterator protocol, no visitor: a traversal answers `[Int]` and a
+// caller does what it likes with it.  That is what keeps this module
+// `[]` — a callback would carry the caller's effects into these
+// signatures, and a `core` package would then be `[io]` because
+// somebody printed while walking.  A caller that cannot afford the list
+// wants `bfs_step`, which is the same walk one frontier at a time.
+//
+// DEPTH-FIRST ORDER IS TWO ANSWERS AND BOTH ARE PUBLISHED.  Pre-order
+// is what a caller means by "depth first"; POST-order is what a
+// topological sort and Tarjan's algorithm are built from, and a library
+// that only answered the first makes its caller reimplement the second.
+
+// Whether a filter admits a node.
+//
+// Published as a named function rather than left to every caller,
+// because "no filter" is the common case and writing `fn yes(n: Int) ->
+// Bool { true }` in every program is the thing a library exists to
+// prevent.
+pub fn all_nodes(node: Int) -> Bool
+    todo("graph-nv.grwalk.all_nodes")
+
+// Never admits a node.  For a test, and for a caller disabling a walk
+// without a branch at its call site.
+pub fn no_nodes(node: Int) -> Bool
+    todo("graph-nv.grwalk.no_nodes")
+
+// One frontier of a breadth-first search.
+//
+// The state a caller carries when it walks a frontier at a time —
+// because a graph whose traversal order matters more than its order's
+// list does exist: a simulation that expands a supply corridor a tick
+// at a time is exactly that.
+pub struct GrFrontier
+    // The nodes at the current distance.
+    nodes: [Int]
+    // How far they are from the start.
+    distance: Int
+    // Which nodes have been reached, indexed by node index.
+    seen: [Bool]
+
+// The nodes reachable from `start`, in breadth-first order.
+//
+// `keep` is asked about every node before it enters the frontier, and
+// `start` itself is asked too — a search from a node the filter rejects
+// answers an empty list rather than that node alone, which is the
+// answer a caller filtering by ownership wants when the headquarters
+// has fallen.
+//
+// ```novo
+// use grwalk
+// use grbuild
+// use std.list
+//
+// fn main() [io]
+//     let g: GrGraph<Int, Float> = grbuild.directed()
+//     match grwalk.bfs_order(g, 0, GrOutgoing, grwalk.all_nodes)
+//         Ok(order) => println("${list.len(order)}")
+//         Err(_)    => println("no such node")
+// ```
+pub fn bfs_order<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection,
+                       keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.bfs_order")
+
+// The nodes reachable from any of several starts, in breadth-first
+// order.
+//
+// One walk rather than a walk per start, which is what a caller with
+// two headquarters or a set of entry points needs and what running
+// `bfs_order` per start and merging gets wrong — the merged list visits
+// nodes twice and its distances are from the wrong start.
+pub fn bfs_order_from<N, E>(g: GrGraph<N, E>, starts: [Int], d: GrDirection,
+                            keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.bfs_order_from")
+
+// How far each node is from `start`, in edges, or `-1` for unreached.
+//
+// `-1` and not an optional, because the answer is one integer per node
+// over a list the caller sized with `index_bound` — and a `[?Int]` of a
+// million entries allocates a million times to say "unreached".
+pub fn bfs_distances<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection,
+                           keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.bfs_distances")
+
+// The first frontier of a breadth-first search.
+pub fn bfs_start<N, E>(g: GrGraph<N, E>, starts: [Int]) -> Result<GrFrontier, GrFault>
+    todo("graph-nv.grwalk.bfs_start")
+
+// The next frontier.
+//
+// Answers a frontier whose `nodes` is empty when the search is done,
+// rather than an optional: "the search finished" and "this frontier is
+// empty" are the same fact, and two spellings of it would make a caller
+// check twice.
+pub fn bfs_step<N, E>(g: GrGraph<N, E>, f: GrFrontier, d: GrDirection,
+                      keep: fn(Int) -> Bool) -> Result<GrFrontier, GrFault>
+    todo("graph-nv.grwalk.bfs_step")
+
+// Whether a node was reached by a frontier's search so far.
+pub fn frontier_reached(f: GrFrontier, node: Int) -> Bool
+    todo("graph-nv.grwalk.frontier_reached")
+
+// The nodes reachable from `start`, in depth-first PRE-order.
+//
+// What a caller means by "depth first": a node before its descendants.
+pub fn dfs_preorder<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection,
+                          keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.dfs_preorder")
+
+// The same, in POST-order — a node after its descendants.
+//
+// The order a topological sort reverses and the order Tarjan's
+// algorithm is written over, published because a caller that needs it
+// would otherwise reimplement the walk.
+pub fn dfs_postorder<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection,
+                           keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.dfs_postorder")
+
+// Whether `to` is reachable from `from`.
+//
+// A search that stops the moment it arrives, which is what makes this
+// worth having beside `bfs_order`: a reachability question over a large
+// graph should not build the whole order to answer a boolean.
+pub fn is_reachable<N, E>(g: GrGraph<N, E>, from: Int, to: Int, d: GrDirection,
+                          keep: fn(Int) -> Bool) -> Result<Bool, GrFault>
+    todo("graph-nv.grwalk.is_reachable")
+
+// ── Order and cycles ────────────────────────────────────────────────
+
+// The nodes in an order where every edge points forward.
+//
+// Kahn's algorithm, so the answer is deterministic: ties are broken by
+// ASCENDING INDEX rather than by whatever the adjacency lists happened
+// to hold.  A topological sort whose order depends on insertion order
+// makes a build system's output change when a file is touched, and a
+// caller cannot tell that from a real change.
+//
+// A graph with a cycle is `GrCyclic` CARRYING THE CYCLE, because "this
+// graph has a cycle" sends a caller looking for it.
+pub fn topological_order<N, E>(g: GrGraph<N, E>) -> Result<[Int], GrFault>
+    todo("graph-nv.grwalk.topological_order")
+
+// Whether the graph has a cycle.
+pub fn has_cycle<N, E>(g: GrGraph<N, E>) -> Bool
+    todo("graph-nv.grwalk.has_cycle")
+
+// One cycle, as the nodes around it closing on the first, or an empty
+// list.
+//
+// Published separately from `topological_order` because a caller that
+// wants only the cycle — a diagnostic, a lint — should not have to
+// provoke a failure to get it.
+pub fn find_cycle<N, E>(g: GrGraph<N, E>) -> [Int]
+    todo("graph-nv.grwalk.find_cycle")
+
+// The nodes at each "level" of a directed acyclic graph.
+//
+// Level zero is every node with no incoming edge; level `k` is every
+// node all of whose predecessors are below `k`.  The layering a
+// build scheduler runs in parallel and the layering `grlay.layered`
+// draws, computed once here so the two agree.
+pub fn layers<N, E>(g: GrGraph<N, E>) -> Result<[[Int]], GrFault>
+    todo("graph-nv.grwalk.layers")
+
+// ── Components ──────────────────────────────────────────────────────
+
+// Which component each node belongs to, indexed by node index.
+//
+// Undirected connectivity: an edge joins its endpoints whichever way it
+// points, which is what "connected components" means even on a directed
+// graph and what a caller asking "is this graph in one piece" wants.
+// `-1` for a node that is not live.
+pub fn components<N, E>(g: GrGraph<N, E>) -> [Int]
+    todo("graph-nv.grwalk.components")
+
+// How many connected components the graph has.
+pub fn component_count<N, E>(g: GrGraph<N, E>) -> Int
+    todo("graph-nv.grwalk.component_count")
+
+// The nodes of each connected component, each list ascending.
+pub fn component_nodes<N, E>(g: GrGraph<N, E>) -> [[Int]]
+    todo("graph-nv.grwalk.component_nodes")
+
+// The strongly connected components, by Tarjan's algorithm.
+//
+// Tarjan rather than Kosaraju because it is ONE pass: Kosaraju walks
+// the graph, builds the reverse graph and walks that, which on a graph
+// this package stores as adjacency lists means building a second graph.
+//
+// The components come out in REVERSE topological order of the condensed
+// graph, which is a property of the algorithm worth publishing rather
+// than sorting away: a caller resolving mutually recursive definitions
+// wants exactly that order, and re-deriving it costs another
+// traversal.
+pub fn strongly_connected<N, E>(g: GrGraph<N, E>) -> [[Int]]
+    todo("graph-nv.grwalk.strongly_connected")
+
+// Which strongly connected component each node belongs to.
+pub fn scc_of_node<N, E>(g: GrGraph<N, E>) -> [Int]
+    todo("graph-nv.grwalk.scc_of_node")
+
+// The condensation: one node per strongly connected component, with an
+// edge wherever the original had one between two components.
+//
+// Always acyclic, which is the point — a caller that wanted a
+// topological order of a cyclic graph wants the topological order of
+// its condensation, and this is the one call that gets it there.
+// Answers the graph and the mapping from original node to condensed
+// node.
+pub fn condensation<N, E>(g: GrGraph<N, E>) -> (GrGraph<Int, Int>, [Int])
+    todo("graph-nv.grwalk.condensation")
+
+// Whether every node is reachable from every other, following edges.
+pub fn is_strongly_connected<N, E>(g: GrGraph<N, E>) -> Bool
+    todo("graph-nv.grwalk.is_strongly_connected")
+
+// Whether the graph is in one connected piece.
+pub fn is_connected<N, E>(g: GrGraph<N, E>) -> Bool
+    todo("graph-nv.grwalk.is_connected")
+
+// Whether the graph is bipartite, and the two-colouring if it is.
+//
+// Answers the colouring rather than a boolean, because a caller that
+// asked is about to use the parts — a matching, a layered layout, a
+// scheduling constraint — and a second walk to recover them is a walk
+// this one already did.  An empty list means it is not bipartite.
+pub fn two_colouring<N, E>(g: GrGraph<N, E>) -> [Int]
+    todo("graph-nv.grwalk.two_colouring")

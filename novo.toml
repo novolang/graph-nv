@@ -1,0 +1,54 @@
+[package]
+name        = "graph-nv"
+version     = "0.0.1"
+description = "petgraph's shape in novo-lang: directed and undirected graphs over node and edge indices with node and edge weight type parameters, adjacency the value owns, traversals and shortest paths with the cost and the heuristic as named functions the caller supplies, and layout as pure arithmetic over geometry-nv points that a canvas later draws.  Interface only — every body is a todo()."
+license     = "Apache-2.0"
+
+# An INTERFACE release: every `pub fn` body is a `todo()`, so the
+# signatures and the effect rows are published and nothing is
+# implemented.  `novo pkg publish` recognises the shape and requires
+# both the draft stability and the 0.0.x version; the first
+# implementation is the 0.1.0 published over it.
+stability   = "draft"
+
+# `core`.  A graph is a list of nodes, a list of edges and the
+# arithmetic over them.  Nothing here reads a file, draws anything or
+# consults a clock — layout is arithmetic that answers POINTS, and
+# drawing them is a caller's `[io]` and not this package's, which is
+# what "traversal and layout with no canvas attached" means in the
+# plan.
+#
+# No `@tier(embedded)` claim, and none is intended.  Every structure
+# here is a growable list and a traversal allocates a frontier; a
+# device that walks a fixed graph of twelve nodes writes twelve lines
+# rather than taking this.  The audit's `core-embedded` row passes as
+# "makes no device claim".
+layer       = "core"
+
+category    = "science"
+
+tags        = ["graph", "petgraph", "networkx", "traversal", "dijkstra", "topological-sort", "layout", "dot"]
+repository  = "https://github.com/novolang/graph-nv"
+maintainers = ["novo-lang"]
+novo        = ">= 0.8.9"
+
+# A library: no `main`, so `novo pkg build` type-checks and
+# effect-checks every module under `src/` and writes no binary.
+
+[docs.pages]
+"README.md" = "Traversal and layout, with no canvas attached"
+
+[dependencies]
+# geometry-nv, FOR THE POINTS LAYOUT ANSWERS IN.
+#
+# `graphlay` computes a position per node, and the type of a position
+# is `GeomPointF` — a `@value` struct of two floats in a `core` package
+# that already owns the vector arithmetic force-directed layout is made
+# of: `offset`, `between`, `length`, `normalize`, `scale`.  Declaring a
+# second point type here would make every consumer convert between two
+# structurally identical values on the way to a canvas.
+#
+# What this does NOT take: a canvas, an image, a colour.  A layout is
+# NUMBERS, drawing them is the caller's, and the plan's `⇐ sector` note
+# says so — "traversal and layout with no canvas attached".
+geometry-nv = "^0.0.1"

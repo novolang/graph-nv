@@ -1,0 +1,327 @@
+// grbuild.nv — the graph: nodes and edges as indices into lists the
+// value owns, with the index stability rules stated rather than
+// implied.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// **THE LOAD-BEARING INTERFACE OF THIS PACKAGE IS `GrGraph<N, E>`, AND
+// THE LOAD-BEARING DECISION IS THAT AN INDEX IS A POSITION, NOT AN
+// IDENTITY.**
+//
+// petgraph's `Graph<N, E>` is a node list, an edge list and an
+// adjacency structure, and everything a caller holds is an index into
+// one of the two.  That is what makes a graph library usable from a
+// language with no pointers: a traversal answers `[Int]`, a shortest
+// path answers `[Int]`, a layout answers a point per index, and none of
+// them has to hand back a reference into a structure the caller also
+// owns.
+//
+// The cost is that indices move, and **every graph library that hides
+// that produces a bug nobody can see**.  So this one states the rule in
+// the surface:
+//
+//   `add_node` / `add_edge`   append.  Every existing index is
+//                             unchanged.
+//   `remove_node`             SWAP-REMOVES.  The LAST node takes the
+//                             removed one's index, and every edge that
+//                             touched either is renumbered.  O(1) plus
+//                             the edges, and it invalidates exactly two
+//                             indices — the removed one and the last.
+//   `remove_edge`             the same, for edges.
+//   `remove_node_stable`      leaves a HOLE.  Every other index is
+//                             unchanged, `node_count` no longer equals
+//                             the highest index plus one, and
+//                             `is_live` is how a caller iterates.
+//
+// Two removals with two names, because the choice is real and a library
+// that picked one for its callers picks wrongly for half of them: a
+// renderer that holds indices across a frame needs the stable one, and
+// a batch algorithm that rebuilds its indices anyway should not pay for
+// the holes.  `remove_node` is the cheap one and its name is the
+// shorter one, which is the wrong way round for safety — so the
+// signature answers WHICH indices moved rather than leaving a caller to
+// work it out.
+//
+// A WEIGHT TYPE PARAMETER, AND IT WORKS.  `GrGraph<N, E>` carries a
+// node weight and an edge weight, and nothing here does arithmetic on
+// either: a weight is an opaque payload, and the one place a number is
+// needed — the cost of an edge for a shortest path — arrives as a
+// NAMED FUNCTION `fn(E) -> Float` the caller supplies.  That is what
+// keeps the type parameters free of a numeric bound the language has no
+// blanket impl for, and it is why `grpath`'s signatures take a
+// projection rather than requiring `E` to be a `Float`.
+//
+// ADJACENCY IS COMPACT LISTS THE VALUE OWNS.  Each node holds the
+// indices of the edges that leave it and the edges that enter it, so
+// `neighbors` is a walk over a list rather than a scan over every edge.
+// A directed graph keeps the two lists apart; an undirected one puts
+// every edge in both, which is what makes `neighbors` one answer on an
+// undirected graph and two questions on a directed one.
+
+// Which way an edge is being followed.
+//
+// A parameter rather than two functions per traversal, because every
+// algorithm here is the same algorithm in both directions and a library
+// with `bfs` and `bfs_reverse` has two implementations to keep in step.
+pub enum GrDirection
+    // Along the edge, from source to target.
+    GrOutgoing
+    // Against it.  On an undirected graph the two are the same answer.
+    GrIncoming
+
+// Whether a graph's edges have a direction.
+//
+// A property of the GRAPH and not of each edge: a graph with some
+// directed and some undirected edges is two graphs, and every algorithm
+// that met one would have to say what it meant.
+pub enum GrKind
+    GrDirected
+    GrUndirected
+
+// One edge, as the value stores it.
+pub struct GrEdge<E>
+    source: Int
+    target: Int
+    weight: E
+
+// A graph.
+//
+// The type parameters are the caller's node and edge weights and
+// nothing here interprets either — see this module's header.
+pub struct GrGraph<N, E>
+    kind: GrKind
+    // One weight per node, indexed by node index.
+    nodes: [N]
+    // One entry per edge, indexed by edge index.
+    edges: [GrEdge<E>]
+    // Per node, the indices of the edges leaving it.  On an undirected
+    // graph every edge appears in both of its endpoints' lists.
+    out_edges: [[Int]]
+    // Per node, the indices of the edges entering it.  Empty on an
+    // undirected graph, where `out_edges` carries everything.
+    in_edges: [[Int]]
+    // Which node indices are live, for a graph built with
+    // `remove_node_stable`.  Empty means every index is live, which is
+    // the common case and costs nothing to represent.
+    live: [Bool]
+
+// Which indices an operation moved.
+//
+// The answer a swap-remove owes its caller.  `moved_from` is the index
+// that was vacated and `moved_to` the index whose occupant now sits
+// there — so a caller holding indices remaps exactly those two rather
+// than rebuilding everything.
+pub struct GrRemoval<N, E>
+    graph: GrGraph<N, E>
+    // The index that was removed.
+    removed: Int
+    // The index whose occupant moved into it, or `-1` when the removed
+    // one was last.
+    moved_from: Int
+
+// An empty directed graph.
+//
+// ```novo
+// use grbuild
+//
+// fn main() [io]
+//     let g: GrGraph<Str, Float> = grbuild.directed()
+//     println("${grbuild.node_count(g)}")
+// ```
+pub fn directed<N, E>() -> GrGraph<N, E>
+    todo("graph-nv.grbuild.directed")
+
+// An empty undirected graph.
+pub fn undirected<N, E>() -> GrGraph<N, E>
+    todo("graph-nv.grbuild.undirected")
+
+// A graph with room for `nodes` nodes and `edges` edges reserved.
+//
+// The one performance knob, and it is a hint rather than a promise: a
+// caller building a graph of known size avoids the growth, and one that
+// guesses wrong loses nothing.
+pub fn with_capacity<N, E>(kind: GrKind, nodes: Int, edges: Int) -> GrGraph<N, E>
+    todo("graph-nv.grbuild.with_capacity")
+
+// A graph from a node weight list and an edge list.
+//
+// The bulk constructor, for a caller that has both already — which is a
+// caller reading a file, and the shape a graph arrives in far more
+// often than one node at a time.
+pub fn of_edges<N, E>(kind: GrKind, nodes: [N],
+                      edges: [GrEdge<E>]) -> Result<GrGraph<N, E>, GrFault>
+    todo("graph-nv.grbuild.of_edges")
+
+// A graph from the CSR adjacency triple — offsets, lengths and a flat
+// neighbour list.
+//
+// The shape a program that already computed adjacency has, and the one
+// this package's first consumer arrives with: three integer lists, one
+// entry per node in the first two and one per directed edge in the
+// third.  Published because rebuilding a graph node by node out of it
+// is the loop a caller should not have to write.
+pub fn of_csr<N>(kind: GrKind, nodes: [N], offsets: [Int], lengths: [Int],
+                 neighbors: [Int]) -> Result<GrGraph<N, Float>, GrFault>
+    todo("graph-nv.grbuild.of_csr")
+
+// A node, appended.  Answers the graph and the new node's index.
+pub fn add_node<N, E>(g: GrGraph<N, E>, weight: N) -> (GrGraph<N, E>, Int)
+    todo("graph-nv.grbuild.add_node")
+
+// An edge, appended.  Answers the graph and the new edge's index.
+//
+// A self-loop is allowed and a parallel edge is allowed, because both
+// are real — a build graph with two dependencies on one target, a road
+// network with two roads between two junctions — and a library that
+// refused them would make a caller carry a multiplicity beside the
+// graph.  `has_edge` answers whether ANY edge joins two nodes and
+// `edges_between` answers all of them.
+pub fn add_edge<N, E>(g: GrGraph<N, E>, source: Int, target: Int,
+                      weight: E) -> Result<(GrGraph<N, E>, Int), GrFault>
+    todo("graph-nv.grbuild.add_edge")
+
+// A node removed by SWAP.
+//
+// The last node takes the removed one's index, every edge that touched
+// either is renumbered, and the answer says which index moved.  O(1)
+// plus the edges that touched the two nodes.
+//
+// See this module's header for why there are two removals.
+pub fn remove_node<N, E>(g: GrGraph<N, E>, index: Int) -> Result<GrRemoval<N, E>, GrFault>
+    todo("graph-nv.grbuild.remove_node")
+
+// A node removed, leaving a HOLE.
+//
+// Every other index is unchanged, which is what a caller holding
+// indices across the removal needs.  The cost: `node_count` no longer
+// equals the highest index plus one, and every iteration goes through
+// `live_nodes` or checks `is_live`.
+pub fn remove_node_stable<N, E>(g: GrGraph<N, E>, index: Int) -> Result<GrGraph<N, E>, GrFault>
+    todo("graph-nv.grbuild.remove_node_stable")
+
+// An edge removed by swap.
+pub fn remove_edge<N, E>(g: GrGraph<N, E>, index: Int) -> Result<GrRemoval<N, E>, GrFault>
+    todo("graph-nv.grbuild.remove_edge")
+
+// A node's weight replaced.
+pub fn set_node_weight<N, E>(g: GrGraph<N, E>, index: Int,
+                             weight: N) -> Result<GrGraph<N, E>, GrFault>
+    todo("graph-nv.grbuild.set_node_weight")
+
+// An edge's weight replaced.
+pub fn set_edge_weight<N, E>(g: GrGraph<N, E>, index: Int,
+                             weight: E) -> Result<GrGraph<N, E>, GrFault>
+    todo("graph-nv.grbuild.set_edge_weight")
+
+// ── Reading ─────────────────────────────────────────────────────────
+
+// How many nodes the graph has.
+//
+// On a graph built with `remove_node_stable` this counts the LIVE ones,
+// which is not the highest index plus one — `index_bound` is that.
+pub fn node_count<N, E>(g: GrGraph<N, E>) -> Int
+    todo("graph-nv.grbuild.node_count")
+
+// How many edges the graph has.
+pub fn edge_count<N, E>(g: GrGraph<N, E>) -> Int
+    todo("graph-nv.grbuild.edge_count")
+
+// One past the highest node index, live or not.
+//
+// What a caller sizes a per-node array with, and the number that
+// differs from `node_count` exactly when a stable removal has left a
+// hole.
+pub fn index_bound<N, E>(g: GrGraph<N, E>) -> Int
+    todo("graph-nv.grbuild.index_bound")
+
+// Whether a node index is live.
+pub fn is_live<N, E>(g: GrGraph<N, E>, index: Int) -> Bool
+    todo("graph-nv.grbuild.is_live")
+
+// Every live node index, ascending.
+pub fn live_nodes<N, E>(g: GrGraph<N, E>) -> [Int]
+    todo("graph-nv.grbuild.live_nodes")
+
+// A node's weight.
+pub fn node_weight<N, E>(g: GrGraph<N, E>, index: Int) -> Result<N, GrFault>
+    todo("graph-nv.grbuild.node_weight")
+
+// An edge, endpoints and weight.
+pub fn edge_at<N, E>(g: GrGraph<N, E>, index: Int) -> Result<GrEdge<E>, GrFault>
+    todo("graph-nv.grbuild.edge_at")
+
+// The indices of the edges leaving or entering a node.
+//
+// On an undirected graph both directions answer the same list, which is
+// the invariant `neighbors` rests on.
+pub fn edges_of<N, E>(g: GrGraph<N, E>, node: Int, d: GrDirection) -> Result<[Int], GrFault>
+    todo("graph-nv.grbuild.edges_of")
+
+// The nodes a node is joined to, in that direction.
+//
+// The call every traversal is written over.  A parallel edge appears
+// TWICE, because it is two edges, and a caller that wants distinct
+// neighbours asks for them — filtering here would make `neighbors` and
+// `edges_of` disagree about the same graph.
+pub fn neighbors<N, E>(g: GrGraph<N, E>, node: Int, d: GrDirection) -> Result<[Int], GrFault>
+    todo("graph-nv.grbuild.neighbors")
+
+// The nodes a node is joined to in EITHER direction, each once.
+//
+// What an undirected algorithm run over a directed graph wants, and the
+// answer `neighbors` deliberately does not give.
+pub fn undirected_neighbors<N, E>(g: GrGraph<N, E>, node: Int) -> Result<[Int], GrFault>
+    todo("graph-nv.grbuild.undirected_neighbors")
+
+// Whether any edge joins two nodes, in that direction.
+pub fn has_edge<N, E>(g: GrGraph<N, E>, source: Int, target: Int) -> Bool
+    todo("graph-nv.grbuild.has_edge")
+
+// Every edge index joining two nodes.
+pub fn edges_between<N, E>(g: GrGraph<N, E>, source: Int, target: Int) -> Result<[Int], GrFault>
+    todo("graph-nv.grbuild.edges_between")
+
+// How many edges touch a node.
+//
+// A self-loop counts TWICE on an undirected graph, which is the
+// convention every textbook uses and the one a caller computing a
+// degree sequence needs.
+pub fn degree<N, E>(g: GrGraph<N, E>, node: Int, d: GrDirection) -> Result<Int, GrFault>
+    todo("graph-nv.grbuild.degree")
+
+// Whether the graph is directed.
+pub fn is_directed<N, E>(g: GrGraph<N, E>) -> Bool
+    todo("graph-nv.grbuild.is_directed")
+
+// The graph with every edge reversed.
+//
+// An undirected graph answers itself.  The one transformation that is
+// worth a function rather than a direction argument, because an
+// algorithm that needs the reverse graph twice should build it once.
+pub fn reversed<N, E>(g: GrGraph<N, E>) -> GrGraph<N, E>
+    todo("graph-nv.grbuild.reversed")
+
+// The subgraph over these node indices, renumbered from zero.
+//
+// Answers the graph and the mapping, because a subgraph whose indices a
+// caller cannot relate back to the original is a graph about nothing.
+pub fn subgraph<N, E>(g: GrGraph<N, E>, nodes: [Int]) -> Result<(GrGraph<N, E>, [Int]), GrFault>
+    todo("graph-nv.grbuild.subgraph")
+
+// The CSR adjacency triple — offsets, lengths and a flat neighbour
+// list.
+//
+// The inverse of `of_csr`, and what a caller hands to something that
+// wants adjacency as three integer lists: a GPU buffer, a C library, a
+// serialised form.
+pub fn to_csr<N, E>(g: GrGraph<N, E>, d: GrDirection) -> ([Int], [Int], [Int])
+    todo("graph-nv.grbuild.to_csr")
+
+// Every way a graph contradicts itself — an edge naming a node that is
+// not there, an adjacency list that does not match the edge list, a
+// directed graph with entries in the wrong list.
+//
+// For a graph a caller built by hand or decoded, not for one this
+// package built.
+pub fn check_graph<N, E>(g: GrGraph<N, E>) -> [GrFault]
+    todo("graph-nv.grbuild.check_graph")

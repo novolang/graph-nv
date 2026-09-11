@@ -1,0 +1,222 @@
+// grpath.nv — shortest paths and spanning trees, with the cost of an
+// edge and the estimate to the goal as named functions the caller
+// supplies.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// **THE COST IS A PROJECTION, NOT A BOUND.**  `GrGraph<N, E>` carries
+// whatever edge weight the caller chose — a struct with a distance and
+// a toll, a duration, a string — and nothing in `grbuild` does
+// arithmetic on it.  So every algorithm here takes
+// `cost: fn(E) -> Float`, a NAMED function, and the type parameter
+// needs no numeric bound at all.
+//
+// That is the shape the language actually supports.  novo-lang has no
+// blanket impls, so a `E: Numeric` bound would mean one impl per weight
+// type in every consumer; and a named function passed where a type
+// parameter is otherwise undetermined does not close it.  Here `E` is
+// already closed by the `g` argument, so `fn(E) -> Float` is a
+// projection the checker resolves — which is why every signature below
+// takes the graph first.
+//
+// It is also the shape a caller wants.  A road network whose edges
+// carry a distance and a speed limit is one graph, and "shortest" means
+// two different things on it: `dijkstra(g, s, by_distance)` and
+// `dijkstra(g, s, by_time)` are two calls over one structure rather
+// than two graphs.
+//
+// **A NEGATIVE WEIGHT IS REFUSED, NOT APPROXIMATED.**  Dijkstra's
+// correctness rests on a settled node never getting cheaper, and a
+// negative edge breaks that silently — the answer comes back, it is
+// wrong, and nothing says so.  `GrNegativeWeight` names the edge.  A
+// caller that needs negative weights needs Bellman-Ford, which is not
+// here and is named in the README as absent rather than approximated by
+// running Dijkstra anyway.
+//
+// A* TAKES THE HEURISTIC AS A NAMED FUNCTION TOO, and the admissibility
+// condition is checked DURING the search rather than asserted: whether
+// a heuristic never over-estimates is a property of the whole graph and
+// cannot be asked of a function, but an over-estimate that matters
+// shows up as a node reached more cheaply after it was settled.
+// `GrHeuristicInadmissible` names that node and both numbers, which is
+// what a caller debugging its own heuristic needs.  `zero_heuristic` is
+// published because A* with it IS Dijkstra, and that equivalence is the
+// first test anybody writes.
+
+use geompoint
+
+// A path: the nodes it passes through and what it cost.
+pub struct GrPath
+    // The nodes from the start to the goal, both included.  Empty when
+    // there is no path, which is an ANSWER and not a fault — a
+    // disconnected graph is an ordinary graph.
+    nodes: [Int]
+    // The edges taken, one fewer than the nodes.  Carried because a
+    // caller that wants to know WHICH of two parallel edges was used
+    // cannot recover it from the node list.
+    edges: [Int]
+    cost: Float
+
+// The result of a single-source shortest-path search over every node.
+pub struct GrDistances
+    // The cost to each node, indexed by node index.  Infinity for
+    // unreached, so the list is arithmetic a caller can compare against
+    // without unwrapping — a `[?Float]` of a million entries allocates
+    // a million times to say "unreached".
+    cost: [Float]
+    // The edge that arrives at each node on its cheapest path, or `-1`.
+    // What `path_to` walks back to rebuild a path without re-searching.
+    came_by: [Int]
+    // The node each cheapest path came from, or `-1`.
+    came_from: [Int]
+
+// A heuristic that estimates nothing.
+//
+// A* with this IS Dijkstra, and publishing it says so: the equivalence
+// is the first test anybody writes, and a caller that wants Dijkstra's
+// answer from the A* code path should not have to write a function that
+// returns zero.
+pub fn zero_heuristic(node: Int) -> Float
+    todo("graph-nv.grpath.zero_heuristic")
+
+// Every edge costs one.
+//
+// The cost projection for a caller whose edges carry no number — which
+// makes `dijkstra` answer what `grwalk.bfs_distances` answers, in
+// floats.  Published so the two can be compared, which is the second
+// test anybody writes.
+pub fn unit_cost<E>(weight: E) -> Float
+    todo("graph-nv.grpath.unit_cost")
+
+// The cheapest cost to every node from `start`.
+//
+// ```novo
+// use grpath
+// use grbuild
+//
+// fn toll(w: Float) -> Float
+//     w
+//
+// fn main() [io]
+//     let g: GrGraph<Int, Float> = grbuild.directed()
+//     match grpath.dijkstra(g, 0, GrOutgoing, toll, grwalk.all_nodes)
+//         Ok(d)  => println("${grpath.cost_to(d, 0)}")
+//         Err(_) => println("refused")
+// ```
+pub fn dijkstra<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection, cost: fn(E) -> Float,
+                      keep: fn(Int) -> Bool) -> Result<GrDistances, GrFault>
+    todo("graph-nv.grpath.dijkstra")
+
+// The cheapest cost to every node from any of several starts.
+pub fn dijkstra_from<N, E>(g: GrGraph<N, E>, starts: [Int], d: GrDirection, cost: fn(E) -> Float,
+                           keep: fn(Int) -> Bool) -> Result<GrDistances, GrFault>
+    todo("graph-nv.grpath.dijkstra_from")
+
+// The cheapest path from `start` to `goal`.
+//
+// Stops the moment the goal is settled, which is what makes it worth
+// having beside `dijkstra`: a point-to-point query over a large graph
+// should not settle the whole graph.
+pub fn shortest_path<N, E>(g: GrGraph<N, E>, start: Int, goal: Int, d: GrDirection,
+                           cost: fn(E) -> Float, keep: fn(Int) -> Bool) -> Result<GrPath, GrFault>
+    todo("graph-nv.grpath.shortest_path")
+
+// The cheapest path, guided by an estimate of the remaining cost.
+//
+// `heuristic` answers an estimate from a node to the goal and must
+// never OVER-estimate — an over-estimate makes A* answer a path that is
+// not shortest, with nothing to say so.  See this module's header for
+// why that is checked during the search rather than asserted.
+pub fn a_star<N, E>(g: GrGraph<N, E>, start: Int, goal: Int, d: GrDirection, cost: fn(E) -> Float,
+                    heuristic: fn(Int) -> Float, keep: fn(Int) -> Bool) -> Result<GrPath, GrFault>
+    todo("graph-nv.grpath.a_star")
+
+// The path to a node, rebuilt from a completed search.
+//
+// Walks `came_from` backwards, which costs the path's length and not
+// another search — the reason `GrDistances` carries the two `came_*`
+// lists rather than only the costs.
+pub fn path_to(d: GrDistances, goal: Int) -> Result<GrPath, GrFault>
+    todo("graph-nv.grpath.path_to")
+
+// The cost to a node from a completed search.
+pub fn cost_to(d: GrDistances, node: Int) -> Float
+    todo("graph-nv.grpath.cost_to")
+
+// Whether a node was reached at all.
+//
+// The question `cost_to` answers as infinity, named — because comparing
+// a float against infinity at every call site is the comparison a
+// caller gets subtly wrong.
+pub fn was_reached(d: GrDistances, node: Int) -> Bool
+    todo("graph-nv.grpath.was_reached")
+
+// The cheapest cost between every pair of nodes.
+//
+// Floyd-Warshall, so `n^3` time and `n^2` space, and the signature says
+// so by taking a limit: a caller that asks this of a hundred-thousand
+// node graph has made a mistake, and `GrBadLayoutParameter` naming the
+// node count is a better answer than an allocation that does not
+// return.  Answers the matrix flattened, row-major, `index_bound` wide.
+pub fn all_pairs<N, E>(g: GrGraph<N, E>, d: GrDirection, cost: fn(E) -> Float,
+                       max_nodes: Int) -> Result<[Float], GrFault>
+    todo("graph-nv.grpath.all_pairs")
+
+// ── Spanning trees ──────────────────────────────────────────────────
+
+// A minimum spanning forest, as the edge indices in it.
+//
+// A FOREST and not a tree, because a disconnected graph has no spanning
+// tree and answering a fault for one would make the ordinary case of "a
+// graph in two pieces" travel the failure path.  A caller that requires
+// a tree checks `grwalk.is_connected` first, and the two answers are
+// then the same thing.
+//
+// Defined on an UNDIRECTED graph, and a directed one is
+// `GrWrongDirectedness` rather than silently answering something that
+// is not a spanning tree of anything.
+//
+// Kruskal, so the answer is deterministic on ties: edges are taken in
+// order of cost and then of ASCENDING INDEX.  Two runs over one graph
+// give one answer, which a randomised tie-break would not and which a
+// caller diffing two layouts depends on.
+pub fn minimum_spanning_forest<N, E>(g: GrGraph<N, E>,
+                                     cost: fn(E) -> Float) -> Result<[Int], GrFault>
+    todo("graph-nv.grpath.minimum_spanning_forest")
+
+// The total cost of a minimum spanning forest.
+pub fn spanning_cost<N, E>(g: GrGraph<N, E>, edges: [Int],
+                           cost: fn(E) -> Float) -> Result<Float, GrFault>
+    todo("graph-nv.grpath.spanning_cost")
+
+// A breadth-first spanning tree from a node, as edge indices.
+//
+// The unweighted counterpart, and the structure a layered layout draws.
+pub fn spanning_tree_from<N, E>(g: GrGraph<N, E>, start: Int, d: GrDirection,
+                                keep: fn(Int) -> Bool) -> Result<[Int], GrFault>
+    todo("graph-nv.grpath.spanning_tree_from")
+
+// ── Geometry, where a graph has positions ───────────────────────────
+
+// Straight-line distance between two laid-out nodes, as an A*
+// heuristic's arithmetic.
+//
+// Published because "A* over a graph whose nodes have positions" is the
+// case A* exists for, and because the heuristic a caller then writes is
+// this call with its own position list closed over — which a named
+// function in the caller's own module does, and a lambda here could
+// not.
+pub fn straight_line(positions: [geompoint.GeomPointF], from: Int, to: Int) -> Float
+    todo("graph-nv.grpath.straight_line")
+
+// Whether a heuristic is admissible over every edge of a graph.
+//
+// The check that CAN be made: a heuristic is admissible if, for every
+// edge, the estimate at the source is no more than the edge's cost plus
+// the estimate at the target — the triangle inequality, checked once
+// over the edge list rather than assumed.  It is a sufficient condition
+// and not a necessary one, so a false answer means "this heuristic may
+// be wrong here", and the edge is named.
+pub fn heuristic_is_consistent<N, E>(g: GrGraph<N, E>, cost: fn(E) -> Float,
+                                     heuristic: fn(Int) -> Float) -> [Int]
+    todo("graph-nv.grpath.heuristic_is_consistent")

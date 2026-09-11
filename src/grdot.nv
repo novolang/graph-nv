@@ -1,0 +1,154 @@
+// grdot.nv — DOT export, into a cursor the caller sized.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// DOT IS THE FORMAT A GRAPH GETS LOOKED AT IN.  A layout this package
+// computes is for a program to draw; a DOT file is for a person to pipe
+// into Graphviz and look at, which is what anybody debugging a graph
+// actually does first.  So this writes DOT and does not read it:
+// reading requires a parser for a grammar with subgraphs, attribute
+// defaults and an HTML-like label sublanguage, which is a package
+// rather than a module, and nothing in this lane needs it.
+//
+// **THE LABELS ARE THE CALLER'S, AS TEXT.**  `GrGraph<N, E>` carries a
+// node weight of a type this package does not know, so it cannot
+// produce a label: the caller passes one list of node labels and one of
+// edge labels.  Not a `fn(N) -> Str` projection — a named function
+// would work, but the caller almost always has the strings already (a
+// module name, a file path, a territory name) and building a list is
+// what it would do inside the projection anyway.  An empty list means
+// "use the index", which is what a debugging dump wants.
+//
+// **QUOTING IS NOT OPTIONAL AND IT IS NOT A WARNING.**  A DOT
+// identifier that contains a quote, a backslash or a newline has to be
+// escaped, and one that contains a byte the format has no escape for
+// cannot be written at all.  `write_graph` answers a `Result` and
+// `GrBadIdentifier` names the text — because a DOT file with a broken
+// quote does not fail at the writer, it fails in Graphviz, on somebody
+// else's machine, with a parse error pointing at a line nobody wrote by
+// hand.  `escape_label` is the repair published beside the check.
+//
+// EVERYTHING WRITES INTO A CURSOR THE CALLER SIZED, and `dot_bound` is
+// the arithmetic that sizes it.  A `core` package does not choose an
+// allocation strategy; a caller streaming a hundred-megabyte graph to a
+// file wants to reuse one buffer, and one writing a twelve-node
+// diagnostic wants one call.
+
+use geompoint
+
+// How a DOT graph is rendered.
+pub struct GrDotOptions
+    // The graph's name, after `digraph` or `graph`.  Escaped like any
+    // other identifier.
+    name: Str
+    // Attributes on the graph itself, as `key=value` pairs already in
+    // DOT's own syntax — because the attribute vocabulary is Graphviz's
+    // and enumerating it here would be a second, always-stale copy of
+    // its documentation.
+    graph_attrs: [Str]
+    // Default attributes for every node, likewise.
+    node_attrs: [Str]
+    // Default attributes for every edge.
+    edge_attrs: [Str]
+    // Whether to write each node's index as a `xlabel`, beside its
+    // label.  What a person debugging an index-related bug wants, and
+    // noise for anybody else.
+    show_indices: Bool
+    // Whether to write a `pos` attribute per node from a layout.
+    // Graphviz honours it under `neato -n`, which is how a layout
+    // computed HERE gets drawn by Graphviz rather than recomputed by
+    // it — and the reason `write_graph_with_layout` exists.
+    use_positions: Bool
+
+// The options a debugging dump wants: no attributes, indices shown.
+//
+// ```novo
+// use grdot
+//
+// fn main() [io]
+//     println(grdot.debug_options().name)
+// ```
+pub fn debug_options() -> GrDotOptions
+    todo("graph-nv.grdot.debug_options")
+
+// The options a presentable diagram wants.
+pub fn default_options(name: Str) -> GrDotOptions
+    todo("graph-nv.grdot.default_options")
+
+// An upper bound on the bytes a DOT rendering needs.
+//
+// From the node and edge counts and the label lengths, so a caller
+// sizes one buffer before it starts.  An upper bound and not the exact
+// size, because escaping can grow a label and a caller needs a number
+// it can allocate before it knows which labels escape.
+pub fn dot_bound<N, E>(g: GrGraph<N, E>, node_labels: [Str], edge_labels: [Str],
+                       o: GrDotOptions) -> Int
+    todo("graph-nv.grdot.dot_bound")
+
+// The graph as DOT, written into a cursor the caller sized.
+//
+// Answers how many bytes were written.  A cursor with less room than
+// `dot_bound` said is `GrBufferTooSmall` and NOTHING is written — a
+// half-written DOT file is worse than none, because it parses up to the
+// truncation and draws a graph that is missing edges.
+pub fn write_graph<N, E>(g: GrGraph<N, E>, node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
+                         mut dst: Cursor) -> Result<Int, GrFault>
+    todo("graph-nv.grdot.write_graph")
+
+// The graph as DOT with a `pos` attribute per node, from a layout.
+//
+// So `neato -n` draws the layout this package computed rather than
+// computing its own — which is what makes a layout here comparable
+// against Graphviz's, and how a reader checks that `force_directed`
+// produces something reasonable.
+pub fn write_graph_with_layout<N, E>(g: GrGraph<N, E>, positions: [geompoint.GeomPointF],
+                                     node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
+                                     mut dst: Cursor) -> Result<Int, GrFault>
+    todo("graph-nv.grdot.write_graph_with_layout")
+
+// A subgraph as DOT, for a caller dumping one component or one
+// neighbourhood.
+//
+// Written as a `subgraph cluster_<n>` block, which is what makes
+// Graphviz draw a box around it — the rendering a caller dumping
+// strongly connected components wants, and the reason this is not just
+// `write_graph` over `grbuild.subgraph`.
+pub fn write_clusters<N, E>(g: GrGraph<N, E>, clusters: [[Int]], cluster_labels: [Str],
+                            node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
+                            mut dst: Cursor) -> Result<Int, GrFault>
+    todo("graph-nv.grdot.write_clusters")
+
+// ── Identifiers ─────────────────────────────────────────────────────
+
+// Whether a string can be written as a DOT identifier without quoting.
+//
+// An alphanumeric name, a numeral, or a quoted string — those are the
+// three, and knowing which a label is decides whether the output is
+// readable or a wall of quotes.
+pub fn is_bare_identifier(text: Str) -> Bool
+    todo("graph-nv.grdot.is_bare_identifier")
+
+// A label escaped for a DOT quoted string.
+//
+// The repair published beside the check, so nobody turns the check off.
+// Escapes the quote and the backslash, turns a newline into `\n` — the
+// one DOT actually renders as a line break, which is why a multi-line
+// label works at all — and refuses a byte the format has no escape for.
+pub fn escape_label(text: Str) -> Result<Str, GrFault>
+    todo("graph-nv.grdot.escape_label")
+
+// Every label in a list that cannot be written.
+//
+// Answered over the whole list rather than one at a time, because a
+// caller with a bad label usually has several from the same source and
+// fixing them one per run is several runs.
+pub fn bad_labels(labels: [Str]) -> [Str]
+    todo("graph-nv.grdot.bad_labels")
+
+// The label for a node, given the caller's list.
+//
+// The index as text when the list is empty or short, which is what
+// makes `write_graph` work with no labels at all — a debugging dump
+// should not require a caller to build a list of numerals.
+pub fn node_label(labels: [Str], index: Int) -> Str
+    todo("graph-nv.grdot.node_label")

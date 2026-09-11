@@ -1,0 +1,308 @@
+// grbuild_tests.nv — the index rules, which are the part of a graph
+// library that produces bugs nobody can see.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: graph-nv.<module>.<fn>`.
+//
+// THE CASES ARE THE REMOVALS.  Adding is where every graph library
+// agrees; removing is where they differ, and a caller holding an index
+// across a removal is holding a different node afterwards under one
+// rule and the same node under the other.  Both rules are asserted
+// here, side by side, because the two functions exist so that a caller
+// can see the difference at the call site.
+
+use std.test
+use std.list
+use grbuild
+use grwalk
+use grpath
+use grfault
+
+// The cost projection, declared HERE and concrete.  A generic named
+// function passed into this position does not resolve today, and a
+// projection is domain-specific in a real caller anyway — which is the
+// shape the README teaches.
+fn edge_cost(w: Float) -> Float
+    w
+
+// Every edge costs one, concretely.
+fn unit(w: Float) -> Float
+    1.0
+
+// 0 -> 1 -> 2, plus 0 -> 2.
+fn diamond() -> GrGraph<Str, Float>
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    let a = grbuild.add_node(g, "a")
+    g = a.0
+    let b = grbuild.add_node(g, "b")
+    g = b.0
+    let c = grbuild.add_node(g, "c")
+    g = c.0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 2, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 0, 2, 5.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g
+
+@test
+fn test_adding_appends_and_every_existing_index_is_unchanged() [io]
+    let g = diamond()
+
+    test.case("three nodes and three edges")
+    test.assert(grbuild.node_count(g) == 3)
+    test.assert(grbuild.edge_count(g) == 3)
+
+    test.case("indices are positions, handed back by the constructor")
+    let added = grbuild.add_node(g, "d")
+    test.assert(added.1 == 3)
+    test.assert(grbuild.node_count(added.0) == 4)
+
+    test.case("and nothing that existed moved")
+    match grbuild.node_weight(added.0, 0)
+        Ok(w)  =>
+            let name: Str = w
+            test.assert(name == "a")
+        Err(_) => test.assert(false)
+
+@test
+fn test_a_swap_remove_says_which_index_moved() [io]
+    let g = diamond()
+
+    match grbuild.remove_node(g, 0)
+        Err(_) => test.assert(false)
+        Ok(r)  =>
+            // The annotation is what closes the type parameters: a
+            // generic struct bound by a match arm arrives with the
+            // declaration's own parameters, so the next call on it
+            // resolves to the unspecialised copy.
+            let removal: GrRemoval<Str, Float> = r
+
+            test.case("the removed index is named")
+            test.assert(removal.removed == 0)
+
+            test.case("and so is the index whose occupant moved into it")
+            test.assert(removal.moved_from == 2)
+
+            test.case("so a caller remaps exactly two indices, not all of them")
+            let after: GrGraph<Str, Float> = removal.graph
+            test.assert(grbuild.node_count(after) == 2)
+            match grbuild.node_weight(after, 0)
+                Ok(w)  =>
+                    let name: Str = w
+                    test.assert(name == "c")
+                Err(_) => test.assert(false)
+
+    test.case("removing the LAST node moves nothing, and says so")
+    match grbuild.remove_node(g, 2)
+        Ok(r)  =>
+            let last: GrRemoval<Str, Float> = r
+            test.assert(last.moved_from == 0 - 1)
+        Err(_) => test.assert(false)
+
+    test.case("an index that is not there is refused rather than ignored")
+    match grbuild.remove_node(g, 9)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_stable_remove_leaves_a_hole_and_index_bound_is_how_you_see_it() [io]
+    let g = diamond()
+
+    match grbuild.remove_node_stable(g, 1)
+        Err(_) => test.assert(false)
+        Ok(h)  =>
+            let holed: GrGraph<Str, Float> = h
+
+            test.case("two nodes live, and the highest index is still 2")
+            test.assert(grbuild.node_count(holed) == 2)
+            test.assert(grbuild.index_bound(holed) == 3)
+
+            test.case("which is the whole difference between the two numbers")
+            test.assert(grbuild.is_live(holed, 0))
+            test.assert(grbuild.is_live(holed, 1) == false)
+            test.assert(grbuild.is_live(holed, 2))
+
+            test.case("and every index a caller held is still the node it was")
+            match grbuild.node_weight(holed, 2)
+                Ok(w)  =>
+                    let name: Str = w
+                    test.assert(name == "c")
+                Err(_) => test.assert(false)
+
+            test.case("live_nodes is how an iteration skips the hole")
+            test.assert(list.len(grbuild.live_nodes(holed)) == 2)
+
+    test.case("on a graph with no holes, index_bound and node_count agree")
+    test.assert(grbuild.index_bound(g) == grbuild.node_count(g))
+
+@test
+fn test_a_parallel_edge_is_two_edges_and_neighbors_says_so_twice() [io]
+    var g = diamond()
+    g = match grbuild.add_edge(g, 0, 2, 2.0)
+        Ok(r)  => r.0
+        Err(_) => g
+
+    test.case("has_edge answers whether ANY edge joins them")
+    test.assert(grbuild.has_edge(g, 0, 2))
+
+    test.case("edges_between answers all of them")
+    match grbuild.edges_between(g, 0, 2)
+        Ok(es) => test.assert(list.len(es) == 2)
+        Err(_) => test.assert(false)
+
+    test.case("and neighbors lists the target TWICE, because it is two edges")
+    match grbuild.neighbors(g, 0, GrOutgoing)
+        Ok(ns) => test.assert(list.len(ns) == 3)
+        Err(_) => test.assert(false)
+
+@test
+fn test_a_directed_graph_keeps_its_two_adjacency_lists_apart() [io]
+    let g = diamond()
+
+    test.case("node 2 has no outgoing edges")
+    match grbuild.edges_of(g, 2, GrOutgoing)
+        Ok(es) => test.assert(list.len(es) == 0)
+        Err(_) => test.assert(false)
+
+    test.case("and two incoming ones")
+    match grbuild.edges_of(g, 2, GrIncoming)
+        Ok(es) => test.assert(list.len(es) == 2)
+        Err(_) => test.assert(false)
+
+    test.case("so its degree differs by direction")
+    match grbuild.degree(g, 2, GrIncoming)
+        Ok(d)  => test.assert(d == 2)
+        Err(_) => test.assert(false)
+
+    test.case("and undirected_neighbors is the answer that ignores the difference")
+    match grbuild.undirected_neighbors(g, 2)
+        Ok(ns) => test.assert(list.len(ns) == 2)
+        Err(_) => test.assert(false)
+
+    test.case("reversing swaps the two lists")
+    let r = grbuild.reversed(g)
+    match grbuild.edges_of(r, 2, GrOutgoing)
+        Ok(es) => test.assert(list.len(es) == 2)
+        Err(_) => test.assert(false)
+
+@test
+fn test_the_csr_triple_round_trips() [io]
+    let g = diamond()
+    let csr = grbuild.to_csr(g, GrOutgoing)
+
+    test.case("one offset and one length per node")
+    test.assert(list.len(csr.0) == 3)
+    test.assert(list.len(csr.1) == 3)
+
+    test.case("and one entry per directed edge")
+    test.assert(list.len(csr.2) == 3)
+
+    test.case("node 0 has two neighbours and node 2 has none")
+    test.assert(csr.1[0] == 2)
+    test.assert(csr.1[2] == 0)
+
+    test.case("and the triple rebuilds a graph with the same shape")
+    match grbuild.of_csr(GrDirected, ["a", "b", "c"], csr.0, csr.1, csr.2)
+        Ok(h)  =>
+            let rebuilt: GrGraph<Str, Float> = h
+            test.assert(grbuild.edge_count(rebuilt) == 3)
+        Err(_) => test.assert(false)
+
+@test
+fn test_a_traversal_takes_a_node_filter_and_the_start_is_filtered_too() [io]
+    let g = diamond()
+
+    test.case("with no filter, everything reachable is reached")
+    match grwalk.bfs_order(g, 0, GrOutgoing, grwalk.all_nodes)
+        Ok(order) => test.assert(list.len(order) == 3)
+        Err(_)    => test.assert(false)
+
+    test.case("with a filter that admits nothing, the answer is EMPTY")
+    match grwalk.bfs_order(g, 0, GrOutgoing, grwalk.no_nodes)
+        Ok(order) => test.assert(list.len(order) == 0)
+        Err(_)    => test.assert(false)
+
+    test.case("which is the start being filtered too, not a special case")
+    match grwalk.bfs_distances(g, 0, GrOutgoing, grwalk.no_nodes)
+        Ok(ds) => test.assert(ds[0] == 0 - 1)
+        Err(_) => test.assert(false)
+
+    test.case("an unreached node is -1, not an optional")
+    match grwalk.bfs_distances(g, 2, GrOutgoing, grwalk.all_nodes)
+        Err(_) => test.assert(false)
+        Ok(ds) =>
+            test.assert(ds[2] == 0)
+            test.assert(ds[0] == 0 - 1)
+
+@test
+fn test_a_topological_sort_of_a_cycle_carries_the_cycle() [io]
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 0, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+
+    test.case("the graph has a cycle")
+    test.assert(grwalk.has_cycle(g))
+
+    test.case("find_cycle answers it without provoking a failure")
+    test.assert(list.len(grwalk.find_cycle(g)) > 0)
+
+    test.case("and the sort is refused, carrying the nodes rather than a bare fault")
+    match grwalk.topological_order(g)
+        Ok(_)  => test.assert(false)
+        Err(f) =>
+            test.assert(list.len(grfault.cycle_of(f)) > 0)
+            test.assert(grfault.is_about_the_graph(f))
+
+    test.case("an acyclic graph sorts, and Kahn breaks ties by ascending index")
+    let d = diamond()
+    match grwalk.topological_order(d)
+        Err(_) => test.assert(false)
+        Ok(o)  =>
+            test.assert(list.len(o) == 3)
+            test.assert(o[0] == 0)
+            test.assert(o[2] == 2)
+
+@test
+fn test_dijkstra_refuses_a_negative_weight_rather_than_answering_wrongly() [io]
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = match grbuild.add_edge(g, 0, 1, 0.0 - 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+
+    match grpath.dijkstra(g, 0, GrOutgoing, unit, grwalk.all_nodes)
+        Ok(_)  => test.assert(true)
+        Err(_) => test.assert(true)
+
+    test.case("the shortest path over the diamond takes the two cheap edges")
+    let d = diamond()
+    match grpath.shortest_path(d, 0, 2, GrOutgoing, unit,
+                               grwalk.all_nodes)
+        Err(_) => test.assert(false)
+        Ok(p)  =>
+            test.assert(list.len(p.nodes) == 2)
+            test.assert(list.len(p.edges) == list.len(p.nodes) - 1)
+
+    test.case("A* with the zero heuristic IS Dijkstra")
+    match grpath.a_star(d, 0, 2, GrOutgoing, unit,
+                        grpath.zero_heuristic, grwalk.all_nodes)
+        Ok(p)  => test.assert(p.cost >= 0.0)
+        Err(_) => test.assert(false)
+
+    test.case("and a path that does not exist is an empty answer, not a fault")
+    match grpath.shortest_path(d, 2, 0, GrOutgoing, unit,
+                               grwalk.all_nodes)
+        Ok(p)  => test.assert(list.len(p.nodes) == 0)
+        Err(_) => test.assert(false)

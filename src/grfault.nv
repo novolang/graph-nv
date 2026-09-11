@@ -1,0 +1,113 @@
+// grfault.nv — why a graph operation was refused.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// MOST GRAPH OPERATIONS CANNOT FAIL, AND THE SURFACE SAYS WHICH CAN.
+// A breadth-first search from a node that exists always answers
+// something; a topological sort of a graph with a cycle does not.  So
+// the `Result`s in this package are few and each one is a real
+// distinction rather than a uniform wrapper:
+//
+//   an index that is not in the graph            GrNoSuchNode / GrNoSuchEdge
+//   a topological sort of a cyclic graph         GrCyclic
+//   a shortest path with a negative edge weight  GrNegativeWeight
+//   a layout with no nodes to lay out            GrEmptyGraph
+//   a DOT identifier that cannot be quoted       GrBadIdentifier
+//   a destination buffer with no room            GrBufferTooSmall
+//
+// Everything else answers a value.  `neighbors` of a node with none is
+// an empty list; `components` of an empty graph is an empty list;
+// `bfs_order` from a node that reaches nothing is that node alone.
+// Modelling those as failures would make the ordinary case travel the
+// failure path, which is the mistake this list exists to avoid.
+//
+// A CYCLE IS REPORTED WITH ITS NODES, because "this graph has a cycle"
+// is not actionable and "a -> b -> c -> a" is.  A caller running a
+// topological sort over a build graph, a module graph or a schema wants
+// the cycle in the message, and finding it again afterwards is a second
+// traversal a caller should not have to write.
+
+// Why an operation was refused.
+pub enum GrFault
+    // A node index that is not in the graph, or that names a node
+    // `remove_node` took out.
+    GrNoSuchNode(index: Int, count: Int)
+    // An edge index likewise.
+    GrNoSuchEdge(index: Int, count: Int)
+    // A topological sort, or anything built on one, of a graph that has
+    // a cycle.  Carries the cycle's nodes in order, closing back on the
+    // first.
+    GrCyclic(cycle: [Int])
+    // Dijkstra with a negative edge weight.  Refused rather than
+    // producing a wrong answer: Dijkstra's correctness rests on a
+    // settled node never getting cheaper, and a negative edge breaks
+    // that silently.  A caller that needs negative weights wants
+    // Bellman-Ford, which is named in the README as absent.
+    GrNegativeWeight(edge: Int, weight: Float)
+    // A heuristic that is not admissible — it over-estimated a distance
+    // A* had already proved shorter.  Detected during the search rather
+    // than checked up front, because admissibility is a property of the
+    // whole graph and cannot be asked of a function.
+    GrHeuristicInadmissible(node: Int, estimate: Float, actual: Float)
+    // A layout of a graph with no nodes.
+    GrEmptyGraph
+    // A layout parameter that cannot produce a layout — a zero or
+    // negative step count, a radius of zero, a bounding box with no
+    // area.
+    GrBadLayoutParameter(what: Str, value: Float)
+    // A DOT node or edge label this writer cannot quote safely.
+    GrBadIdentifier(text: Str)
+    // A destination cursor with less room than the write needs.
+    // Nothing is written when this is answered.
+    GrBufferTooSmall(want: Int, have: Int)
+    // An operation that needs the graph to be undirected, on a directed
+    // one, or the reverse.  Minimum spanning tree is the case: it is
+    // defined on an undirected graph, and running it on a directed one
+    // answers a value that is not a spanning tree of anything.
+    GrWrongDirectedness(wanted_directed: Bool)
+    // Two nodes given where the operation needs them to differ.
+    GrSameNode(index: Int)
+
+// The standard `Error` implementation, so a refused operation is
+// reported by anything that reports errors.
+//
+// ```novo
+// use grfault
+//
+// fn main() [io]
+//     let f = grfault.no_such_node(7, 4)
+//     println(f.message())
+// ```
+impl Error for GrFault
+    // The one-line report.  For a cycle this NAMES the nodes, because
+    // "this graph has a cycle" sends a caller looking for it and
+    // "a -> b -> c -> a" does not.
+    fn message(self) -> Str
+        todo("graph-nv.grfault.GrFault.message")
+
+// A missing node, built.
+pub fn no_such_node(index: Int, count: Int) -> GrFault
+    todo("graph-nv.grfault.no_such_node")
+
+// Whether a fault says the graph's shape was wrong rather than the
+// caller's arguments.
+//
+// True for `GrCyclic`, `GrNegativeWeight` and `GrWrongDirectedness`.
+// The distinction a caller acts on: a wrong index is its own bug and a
+// cycle is its data's.
+pub fn is_about_the_graph(f: GrFault) -> Bool
+    todo("graph-nv.grfault.is_about_the_graph")
+
+// The cycle a `GrCyclic` carries, or an empty list.
+pub fn cycle_of(f: GrFault) -> [Int]
+    todo("graph-nv.grfault.cycle_of")
+
+// The cycle rendered as `a -> b -> c -> a`, with the caller's own node
+// names.
+//
+// The names are a list indexed by node, because this package does not
+// know what a node IS — it holds a weight the caller gave it — and a
+// renderer that printed indices would produce a message nobody can act
+// on.  A caller with no names passes an empty list and gets indices.
+pub fn cycle_text(f: GrFault, names: [Str]) -> Str
+    todo("graph-nv.grfault.cycle_text")

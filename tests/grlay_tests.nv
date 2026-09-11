@@ -1,0 +1,182 @@
+// grlay_tests.nv — layout as arithmetic, and DOT as text that has to
+// parse on somebody else's machine.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: graph-nv.<module>.<fn>`.
+//
+// THE CASES ARE THE TWO PROMISES.  A layout is a PURE FUNCTION of the
+// graph, the seed and the step count — so two runs give one answer, and
+// a caller diffing two pictures sees a change rather than noise.  And a
+// DOT writer either produces a file Graphviz parses or refuses; a
+// half-written one parses up to the truncation and draws a graph with
+// edges missing, which is the failure nobody notices.
+
+use std.test
+use std.list
+use grbuild
+use grwalk
+use grlay
+use grdot
+use geompoint
+use geomrect
+
+fn two_components() -> GrGraph<Str, Float>
+    var g: GrGraph<Str, Float> = grbuild.undirected()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = grbuild.add_node(g, "c").0
+    g = grbuild.add_node(g, "d").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 2, 3, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g
+
+fn unit_box() -> geomrect.GeomRectF
+    geomrect.of_xywh(0.0, 0.0, 100.0, 100.0)
+
+@test
+fn test_a_graph_in_two_pieces_is_two_components() [io]
+    let g = two_components()
+
+    test.case("two, and is_connected says so")
+    test.assert(grwalk.component_count(g) == 2)
+    test.assert(grwalk.is_connected(g) == false)
+
+    test.case("every node is in one of them")
+    let ids = grwalk.components(g)
+    test.assert(ids[0] == ids[1])
+    test.assert(ids[2] == ids[3])
+    test.assert(ids[0] != ids[2])
+
+    test.case("and the nodes of each come out ascending")
+    let parts = grwalk.component_nodes(g)
+    test.assert(list.len(parts) == 2)
+    test.assert(list.len(parts[0]) == 2)
+
+    test.case("a graph of two edges and four nodes is bipartite")
+    test.assert(list.len(grwalk.two_colouring(g)) == 4)
+
+@test
+fn test_a_layout_is_a_pure_function_of_its_inputs() [io]
+    let g = two_components()
+    let p = grlay.default_force_params()
+
+    test.case("the step count is an ARGUMENT, not a tolerance")
+    test.assert(p.steps > 0)
+
+    test.case("the seed is deterministic — a hash of the index, not a random draw")
+    let a = grlay.seed_from_hash(4, unit_box())
+    let b = grlay.seed_from_hash(4, unit_box())
+    test.assert(list.len(a) == 4)
+    test.assert(grlay.total_displacement(a, b) == 0.0)
+
+    test.case("so two runs over one graph give one answer")
+    match grlay.force_directed(g, a, p)
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            match grlay.force_directed(g, a, p)
+                Ok(two) => test.assert(grlay.total_displacement(one, two) == 0.0)
+                Err(_)  => test.assert(false)
+
+    test.case("a seed of the wrong length is caught rather than read past")
+    test.assert(list.len(grlay.check_seed(g, grlay.seed_from_hash(2, unit_box()))) > 0)
+    test.assert(list.len(grlay.check_seed(g, a)) == 0)
+
+@test
+fn test_a_layout_answers_points_and_draws_nothing() [io]
+    let g = two_components()
+
+    test.case("a circular layout puts one point per node, in index order")
+    match grlay.circular(g, geompoint.ptf(50.0, 50.0), 40.0)
+        Err(_) => test.assert(false)
+        Ok(ps) =>
+            test.assert(list.len(ps) == 4)
+
+            test.case("every one of them is on the circle")
+            test.assert(geompoint.near(ps[0],
+                geompoint.ptf(90.0, 50.0), 0.001))
+
+            test.case("and fitting to a box is a separate transform")
+            let fitted = grlay.fit_to(ps, unit_box(), 5.0)
+            let bounds = grlay.layout_bounds(fitted)
+            test.assert(geomrect.width(bounds) <= 90.0)
+
+    test.case("a layout of a graph with no nodes is refused rather than empty")
+    let empty: GrGraph<Str, Float> = grbuild.undirected()
+    match grlay.circular(empty, geompoint.ptf(0.0, 0.0), 1.0)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_layered_layout_refuses_a_cyclic_graph_rather_than_lying_about_it() [io]
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 0, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+
+    test.case("a layered drawing of a cycle would have edges pointing backwards")
+    match grlay.layered(g, unit_box(), true)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+    test.case("and layers refuses for the same reason")
+    match grwalk.layers(g)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_dot_label_that_cannot_be_quoted_is_refused_not_warned() [io]
+    test.case("a plain name needs no quotes")
+    test.assert(grdot.is_bare_identifier("node_a"))
+    test.assert(grdot.is_bare_identifier("42"))
+
+    test.case("one with a space or a quote does")
+    test.assert(grdot.is_bare_identifier("two words") == false)
+    test.assert(grdot.is_bare_identifier("a\"b") == false)
+
+    test.case("escaping is published beside the check, so nobody turns the check off")
+    match grdot.escape_label("a\"b")
+        Ok(s)  => test.assert(s != "")
+        Err(_) => test.assert(false)
+
+    test.case("a newline is escaped to the sequence DOT renders as a line break")
+    match grdot.escape_label("a\nb")
+        Ok(s)  => test.assert(s != "")
+        Err(_) => test.assert(false)
+
+    test.case("and bad_labels answers all of them, not the first")
+    test.assert(list.len(grdot.bad_labels(["ok", "also ok"])) == 0)
+
+@test
+fn test_a_dot_write_that_does_not_fit_writes_nothing() [io]
+    let g = two_components()
+    let o = grdot.debug_options()
+    let want = grdot.dot_bound(g, [], [], o)
+
+    test.case("the bound is answerable before anything is written")
+    test.assert(want > 0)
+
+    test.case("a cursor with no room refuses rather than truncating")
+    var tiny = bytes.cursor_le(bytes.zeros(4))
+    match grdot.write_graph(g, [], [], o, tiny)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+    test.case("and a cursor sized from the bound does not")
+    var ok = bytes.cursor_le(bytes.zeros(want))
+    match grdot.write_graph(g, [], [], o, ok)
+        Ok(n)  => test.assert(n > 0)
+        Err(_) => test.assert(false)
+
+    test.case("with no labels, a node is its index — a dump needs no list of numerals")
+    test.assert(grdot.node_label([], 3) == "3")
+    test.assert(grdot.node_label(["a", "b"], 1) == "b")
+    test.assert(grdot.node_label(["a", "b"], 5) == "5")

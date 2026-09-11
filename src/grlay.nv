@@ -1,0 +1,244 @@
+// grlay.nv — layout: a position per node, as pure arithmetic over
+// geometry-nv points, with no canvas attached.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// **A LAYOUT IS NUMBERS, AND DRAWING THEM IS SOMEBODY ELSE'S `[io]`.**
+// The plan's note for this package is "traversal and layout with no
+// canvas attached", and that is a layer decision as much as a scoping
+// one: `std.canvas` is `[io]`, so a `layout` that drew would make this
+// package `host` and take it off every consumer that only wanted a
+// topological sort.  So every function here answers
+// `[geompoint.GeomPointF]`, one per node index, and what happens to
+// those points is the caller's.
+//
+// It is also what makes a layout testable and replayable.  A test
+// asserts positions; a renderer replays them; a caller that wants an
+// SVG hands them to svg-nv and one that wants a terminal rounds them to
+// cells.  plot-nv made the same decision for the same reason and its
+// note says so.
+//
+// **FORCE-DIRECTED LAYOUT RUNS A FIXED NUMBER OF STEPS, ON PURPOSE.**
+// The usual formulation runs until it converges, which means the answer
+// depends on a tolerance, the node count and floating-point rounding —
+// so two runs over one graph give two pictures and a caller diffing
+// them sees noise.  Here the step count is an argument, every step is
+// the same arithmetic, and the layout is a pure function of
+// `(graph, seed positions, steps)`.  A caller that wants convergence
+// runs more steps and can watch `total_displacement` fall.
+//
+// AND THE SEED POSITIONS ARE THE CALLER'S, which is the other half of
+// the same argument: a `core` package has no random number generator,
+// and a layout that seeded itself would be either non-reproducible or
+// secretly seeded from a constant.  `circular` is the honest default
+// seed and `seed_from_hash` is the deterministic scatter — a function
+// of the node INDEX, so the same graph seeds the same way on every
+// machine.
+//
+// THREE LAYOUTS, AND EACH ONE IS FOR A DIFFERENT SHAPE OF GRAPH:
+//
+//   circular       every node on a circle, in index order.  Honest for
+//                  a graph with no structure worth showing, and the
+//                  seed the other two start from.
+//   layered        for a DAG: `grwalk.layers` down one axis and
+//                  position within a layer across the other, with a
+//                  crossing-reduction pass.  What a build graph, a
+//                  schema or a module graph wants.
+//   force_directed for everything else.
+
+use geompoint
+use geomrect
+
+// How far a force-directed step moved every node, and how the layout is
+// progressing.
+pub struct GrLayoutStep
+    positions: [geompoint.GeomPointF]
+    // The sum of the distances every node moved in this step.  Falls as
+    // a layout settles, which is how a caller decides to stop — and it
+    // is a number rather than a converged flag because the threshold is
+    // a property of the caller's drawing, not of the graph.
+    displacement: Float
+    // How many steps have run.
+    step: Int
+
+// The knobs a force-directed layout has.
+//
+// A struct rather than eight arguments, because they are tuned together
+// and because a caller that changes one wants the other seven to stay
+// where they were.
+pub struct GrForceParams
+    // How strongly two nodes push each other apart.
+    repulsion: Float
+    // How strongly an edge pulls its endpoints together.
+    attraction: Float
+    // The distance an edge is happy at.  Everything else scales from
+    // this, so a caller drawing into a 800-point box sets it and leaves
+    // the rest.
+    ideal_length: Float
+    // How much of each step's force is applied.  Falls over the run —
+    // the cooling schedule — which is what stops a layout oscillating
+    // between two mirror images.
+    initial_temperature: Float
+    // How many steps to run.  See this module's header for why this is
+    // an argument and not a tolerance.
+    steps: Int
+    // Whether to keep every node inside `bounds`.
+    clamp_to_bounds: Bool
+    bounds: geomrect.GeomRectF
+
+// The parameters that produce a readable layout for a graph of a few
+// dozen nodes in a unit box.
+//
+// ```novo
+// use grlay
+//
+// fn main() [io]
+//     println("${grlay.default_force_params().steps}")
+// ```
+pub fn default_force_params() -> GrForceParams
+    todo("graph-nv.grlay.default_force_params")
+
+// The parameters scaled to a bounding box.
+//
+// The call a caller drawing into a known area makes: the ideal edge
+// length and the repulsion both scale with the area over the node
+// count, which is the one relationship that has to hold for a layout to
+// fill its box rather than collapse into a corner.
+pub fn force_params_for(bounds: geomrect.GeomRectF, node_count: Int) -> GrForceParams
+    todo("graph-nv.grlay.force_params_for")
+
+// ── The three layouts ───────────────────────────────────────────────
+
+// Every node on a circle, in index order.
+//
+// The honest layout for a graph whose structure is not worth a
+// heuristic, and the seed the other two start from.  Deterministic, and
+// a pure function of the node count.
+pub fn circular<N, E>(g: GrGraph<N, E>, center: geompoint.GeomPointF,
+                      radius: Float) -> Result<[geompoint.GeomPointF], GrFault>
+    todo("graph-nv.grlay.circular")
+
+// Nodes on concentric circles, one per connected component.
+//
+// Because a circular layout of a graph in five pieces draws five
+// interleaved rings and shows nothing.  Published rather than left to a
+// caller because the ring radii have to grow with each component's
+// size, which is the part that is fiddly.
+pub fn circular_by_component<N, E>(g: GrGraph<N, E>,
+                                   bounds: geomrect.GeomRectF) -> Result<[geompoint.GeomPointF], GrFault>
+    todo("graph-nv.grlay.circular_by_component")
+
+// A layered layout for a directed acyclic graph.
+//
+// `grwalk.layers` down one axis, position within a layer across the
+// other.  A graph with a CYCLE is `GrCyclic` carrying the cycle rather
+// than laid out anyway: a layered drawing of a cyclic graph has edges
+// pointing backwards, which is a picture that lies about the data.
+//
+// A caller that has a cyclic graph and still wants a layered picture
+// lays out `grwalk.condensation` instead, which is always acyclic — and
+// that is the honest answer rather than an option on this function.
+pub fn layered<N, E>(g: GrGraph<N, E>, bounds: geomrect.GeomRectF,
+                     vertical: Bool) -> Result<[geompoint.GeomPointF], GrFault>
+    todo("graph-nv.grlay.layered")
+
+// The order of the nodes within each layer, with crossings reduced.
+//
+// The barycentre heuristic, a fixed number of sweeps: each node moves
+// to the average position of its neighbours in the layer above, then
+// below, repeatedly.  Published separately from `layered` because a
+// caller that has its own ordering constraint — a build graph where two
+// targets must appear in a fixed order — wants to lay out with its own
+// ordering rather than have this one imposed.
+pub fn reduce_crossings<N, E>(g: GrGraph<N, E>, layers: [[Int]],
+                              sweeps: Int) -> Result<[[Int]], GrFault>
+    todo("graph-nv.grlay.reduce_crossings")
+
+// How many edge crossings a layered ordering has.
+//
+// The number `reduce_crossings` reduces, published so a caller can see
+// whether more sweeps paid — and so a test can assert that they did.
+pub fn crossing_count<N, E>(g: GrGraph<N, E>, layers: [[Int]]) -> Int
+    todo("graph-nv.grlay.crossing_count")
+
+// One force-directed step over a set of positions.
+//
+// The state machine form, and the one a caller animating a layout
+// wants: a frame per step, with `displacement` falling.  Pure — the
+// same positions and the same parameters give the same next positions,
+// on every machine.
+pub fn force_step<N, E>(g: GrGraph<N, E>, positions: [geompoint.GeomPointF], p: GrForceParams,
+                        step: Int) -> Result<GrLayoutStep, GrFault>
+    todo("graph-nv.grlay.force_step")
+
+// `p.steps` force-directed steps from a seed.
+//
+// The whole-run form.  A pure function of `(graph, seed, parameters)` —
+// see this module's header for why the step count is an argument rather
+// than a convergence tolerance.
+pub fn force_directed<N, E>(g: GrGraph<N, E>, seed: [geompoint.GeomPointF],
+                            p: GrForceParams) -> Result<[geompoint.GeomPointF], GrFault>
+    todo("graph-nv.grlay.force_directed")
+
+// ── Seeds ───────────────────────────────────────────────────────────
+
+// A deterministic scatter, as a function of the node INDEX.
+//
+// Not random: a `core` package has no generator, and a layout that
+// seeded itself would be either non-reproducible or secretly seeded
+// from a constant.  This is a hash of the index into the box, so the
+// same graph seeds the same way on every machine and two runs draw the
+// same picture.
+pub fn seed_from_hash(count: Int, bounds: geomrect.GeomRectF) -> [geompoint.GeomPointF]
+    todo("graph-nv.grlay.seed_from_hash")
+
+// A seed a caller supplies, checked against the graph.
+//
+// The one place a layout can be handed the wrong thing: a positions
+// list that is not `index_bound` long lays out some nodes and reads
+// past the end for the rest.
+pub fn check_seed<N, E>(g: GrGraph<N, E>, seed: [geompoint.GeomPointF]) -> [GrFault]
+    todo("graph-nv.grlay.check_seed")
+
+// ── Reading a layout ────────────────────────────────────────────────
+
+// The box a layout occupies.
+pub fn layout_bounds(positions: [geompoint.GeomPointF]) -> geomrect.GeomRectF
+    todo("graph-nv.grlay.layout_bounds")
+
+// A layout scaled and translated to fill a box.
+//
+// The last step of every drawing, and the reason the layouts themselves
+// do not take a box: a force-directed layout finds a SHAPE, and fitting
+// that shape to a canvas is one affine transform that should not be
+// entangled with the physics.
+pub fn fit_to(positions: [geompoint.GeomPointF], bounds: geomrect.GeomRectF,
+              margin: Float) -> [geompoint.GeomPointF]
+    todo("graph-nv.grlay.fit_to")
+
+// The two endpoints of an edge, as points.
+//
+// The call a renderer makes per edge, published so a caller does not
+// index the positions list by an edge's endpoints itself and get a
+// self-loop wrong — a self-loop's two endpoints are one point, and a
+// renderer needs to know that rather than drawing a zero-length line.
+pub fn edge_points<N, E>(g: GrGraph<N, E>, positions: [geompoint.GeomPointF],
+                         edge: Int) -> Result<(geompoint.GeomPointF, geompoint.GeomPointF), GrFault>
+    todo("graph-nv.grlay.edge_points")
+
+// How far the two layouts moved each node, in total.
+//
+// For a caller comparing two runs — a test that asserts a layout is
+// stable under a change, or an animation that interpolates between
+// them.
+pub fn total_displacement(before: [geompoint.GeomPointF], after: [geompoint.GeomPointF]) -> Float
+    todo("graph-nv.grlay.total_displacement")
+
+// The positions interpolated between two layouts.
+//
+// What an animation draws between a graph's old shape and its new one,
+// and arithmetic rather than a policy: `t` of zero is `before` and one
+// is `after`.
+pub fn interpolate(before: [geompoint.GeomPointF], after: [geompoint.GeomPointF],
+                   t: Float) -> [geompoint.GeomPointF]
+    todo("graph-nv.grlay.interpolate")
