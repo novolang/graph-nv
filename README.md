@@ -228,10 +228,10 @@ every node. Take the second when you will ask about more than one goal.
   [svg-nv](https://novo-lang.org/packages/svg-nv) for a document, or
   round them to cells for a terminal. Drawing performs output, and
   nothing in this package does.
-- **A microcontroller build.** Every structure here is a growable list
-  and a traversal allocates a frontier. A device walking a fixed graph
-  of twelve nodes writes the twelve lines. This package makes no device
-  claim and ships no device probe.
+- **A microcontroller build.** Every structure here is a growable list and a
+  traversal allocates a frontier. A device walking a fixed graph of twelve
+  nodes writes the twelve lines. Nothing here is claimed to build for a device
+  with no heap allocator, and there is no `tests/embedded_probe.nv`.
 
 ## Related packages
 
