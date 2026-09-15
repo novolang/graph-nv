@@ -1,6 +1,6 @@
 [package]
 name        = "graph-nv"
-version     = "0.0.1"
+version     = "0.0.2"
 description = "petgraph's shape in novo-lang: directed and undirected graphs over node and edge indices with node and edge weight type parameters, adjacency the value owns, traversals and shortest paths with the cost and the heuristic as named functions the caller supplies, and layout as pure arithmetic over geometry-nv points that a canvas later draws.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
