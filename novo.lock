@@ -3,6 +3,6 @@
 [geometry-nv]
 source = "registry"
 url = "https://registry.novo-lang.org"
-req = "^0.0.1"
-version = "0.0.1"
-hash = "f674c9e5465b7347bb70f5b40b44e84e61a97b5ed8075b7dbbc28eb91e5f0744"
+req = "^0.1.0"
+version = "0.1.0"
+hash = "139284a1d28fdfd1a1275edb0fd78dc3fb92d1bbc53098e34e4e46ce4d54f844"

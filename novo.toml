@@ -1,6 +1,6 @@
 [package]
 name        = "graph-nv"
-version     = "0.0.2"
+version     = "0.0.3"
 description = "petgraph's shape in novo-lang: directed and undirected graphs over node and edge indices with node and edge weight type parameters, adjacency the value owns, traversals and shortest paths with the cost and the heuristic as named functions the caller supplies, and layout as pure arithmetic over geometry-nv points that a canvas later draws.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
@@ -51,4 +51,4 @@ novo        = ">= 0.8.9"
 # What this does NOT take: a canvas, an image, a colour.  A layout is
 # NUMBERS, drawing them is the caller's, and the plan's `⇐ sector` note
 # says so — "traversal and layout with no canvas attached".
-geometry-nv = "^0.0.1"
+geometry-nv = "^0.1.0"
