@@ -1,0 +1,257 @@
+// grpath_tests.nv — the walks, the searches and the faults they answer.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: graph-nv.<module>.<fn>`.
+//
+// THE CASES ARE THE ORDERS.  A traversal is only useful when a caller
+// can say in advance which order it answers, so each walk is asserted
+// on a graph small enough that the order is written out by hand: the
+// diamond 0 -> 1 -> 2 plus 0 -> 2, and a two-node cycle beside a
+// third node it cannot reach.
+
+use std.test
+use std.list
+use grbuild
+use grwalk
+use grpath
+use grfault
+use geompoint
+
+// Every edge costs what its weight says.  Declared here and concrete,
+// for the reason grbuild_tests.nv gives for its own projection.
+fn edge_cost(w: Float) -> Float
+    w
+
+// 0 -> 1 -> 2, plus 0 -> 2 at a cost of five.
+fn diamond() -> GrGraph<Str, Float>
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = grbuild.add_node(g, "c").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 2, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 0, 2, 5.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g
+
+// 0 <-> 1, and a node 2 with an edge into the pair and none out of it.
+fn cycle_and_tail() -> GrGraph<Str, Float>
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = grbuild.add_node(g, "c").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 0, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 2, 0, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g
+
+@test
+fn test_a_walk_from_several_starts_is_one_walk() [io]
+    let g = diamond()
+
+    test.case("starting at 1 and 2 reaches each of them once")
+    match grwalk.bfs_order_from(g, [1, 2], GrOutgoing, grwalk.all_nodes)
+        Ok(order) => test.assert(list.len(order) == 2)
+        Err(_)    => test.assert(false)
+
+    test.case("a start that is not in the graph is refused")
+    match grwalk.bfs_order_from(g, [0, 9], GrOutgoing, grwalk.all_nodes)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_breadth_first_search_steps_one_frontier_at_a_time() [io]
+    let g = diamond()
+
+    match grwalk.bfs_start(g, [0])
+        Err(_) => test.assert(false)
+        Ok(f0) =>
+            test.case("the first frontier is the start, at distance zero")
+            test.assert(f0.distance == 0)
+            test.assert(list.len(f0.nodes) == 1)
+            test.assert(grwalk.frontier_reached(f0, 0))
+            test.assert(grwalk.frontier_reached(f0, 2) == false)
+
+            test.case("the next one is everything one edge away")
+            match grwalk.bfs_step(g, f0, GrOutgoing, grwalk.all_nodes)
+                Err(_) => test.assert(false)
+                Ok(f1) =>
+                    test.assert(f1.distance == 1)
+                    test.assert(list.len(f1.nodes) == 2)
+                    test.assert(grwalk.frontier_reached(f1, 2))
+
+                    test.case("and an empty frontier is how the search says it is done")
+                    match grwalk.bfs_step(g, f1, GrOutgoing, grwalk.all_nodes)
+                        Ok(f2) => test.assert(list.len(f2.nodes) == 0)
+                        Err(_) => test.assert(false)
+
+@test
+fn test_depth_first_order_is_a_node_before_or_after_its_descendants() [io]
+    let g = diamond()
+
+    test.case("pre-order puts the start first")
+    match grwalk.dfs_preorder(g, 0, GrOutgoing, grwalk.all_nodes)
+        Err(_) => test.assert(false)
+        Ok(o)  =>
+            test.assert(list.len(o) == 3)
+            test.assert(o[0] == 0)
+
+    test.case("post-order puts it last")
+    match grwalk.dfs_postorder(g, 0, GrOutgoing, grwalk.all_nodes)
+        Err(_) => test.assert(false)
+        Ok(o)  =>
+            test.assert(list.len(o) == 3)
+            test.assert(o[2] == 0)
+
+@test
+fn test_reachability_follows_the_direction_it_is_given() [io]
+    let g = diamond()
+
+    test.case("2 is reachable from 0 along the edges")
+    match grwalk.is_reachable(g, 0, 2, GrOutgoing, grwalk.all_nodes)
+        Ok(b)  => test.assert(b)
+        Err(_) => test.assert(false)
+
+    test.case("and 0 is not reachable from 2 along them")
+    match grwalk.is_reachable(g, 2, 0, GrOutgoing, grwalk.all_nodes)
+        Ok(b)  => test.assert(b == false)
+        Err(_) => test.assert(false)
+
+    test.case("against them, it is")
+    match grwalk.is_reachable(g, 2, 0, GrIncoming, grwalk.all_nodes)
+        Ok(b)  => test.assert(b)
+        Err(_) => test.assert(false)
+
+@test
+fn test_strongly_connected_components_and_their_condensation() [io]
+    let g = cycle_and_tail()
+
+    test.case("the cycle is one component and the tail another")
+    test.assert(list.len(grwalk.strongly_connected(g)) == 2)
+
+    test.case("so 0 and 1 share a component and 2 has its own")
+    let ids = grwalk.scc_of_node(g)
+    test.assert(ids[0] == ids[1])
+    test.assert(ids[0] != ids[2])
+
+    test.case("the condensation has a node per component and no cycle")
+    let c = grwalk.condensation(g)
+    test.assert(grbuild.node_count(c.0) == 2)
+    test.assert(grwalk.has_cycle(c.0) == false)
+    test.assert(list.len(c.1) == 3)
+
+    test.case("node 2 cannot be reached from the cycle, so the graph is not strongly connected")
+    test.assert(grwalk.is_strongly_connected(g) == false)
+
+@test
+fn test_a_completed_search_answers_costs_and_paths_without_searching_again() [io]
+    let g = diamond()
+
+    match grpath.dijkstra(g, 0, GrOutgoing, edge_cost, grwalk.all_nodes)
+        Err(_) => test.assert(false)
+        Ok(d)  =>
+            test.case("the cheapest way to 2 is through 1, at a cost of two")
+            test.assert(grpath.cost_to(d, 2) == 2.0)
+            test.assert(grpath.was_reached(d, 2))
+
+            test.case("and the path is rebuilt from the search")
+            match grpath.path_to(d, 2)
+                Ok(p)  => test.assert(list.len(p.nodes) == 3)
+                Err(_) => test.assert(false)
+
+    test.case("from 2 nothing else is reached, and was_reached says so")
+    match grpath.dijkstra(g, 2, GrOutgoing, edge_cost, grwalk.all_nodes)
+        Ok(d)  => test.assert(grpath.was_reached(d, 0) == false)
+        Err(_) => test.assert(false)
+
+    test.case("several starts are one search: from 0 and 1, node 2 costs one")
+    match grpath.dijkstra_from(g, [0, 1], GrOutgoing, edge_cost, grwalk.all_nodes)
+        Ok(d)  => test.assert(grpath.cost_to(d, 2) == 1.0)
+        Err(_) => test.assert(false)
+
+@test
+fn test_every_edge_costs_one_under_the_unit_projection() [io]
+    test.case("whatever the weight is")
+    test.assert(grpath.unit_cost(5.0) == 1.0)
+    test.assert(grpath.unit_cost(0.0) == 1.0)
+
+@test
+fn test_all_pairs_answers_a_flat_matrix_and_refuses_a_graph_over_its_limit() [io]
+    let g = diamond()
+
+    test.case("three nodes is a three-by-three matrix, row-major")
+    match grpath.all_pairs(g, GrOutgoing, edge_cost, 10)
+        Err(_) => test.assert(false)
+        Ok(m)  =>
+            test.assert(list.len(m) == 9)
+            test.assert(m[0] == 0.0)
+            test.assert(m[2] == 2.0)
+
+    test.case("a limit below the node count is a refusal, not an allocation")
+    match grpath.all_pairs(g, GrOutgoing, edge_cost, 2)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_spanning_forest_takes_the_cheap_edges() [io]
+    var g: GrGraph<Str, Float> = grbuild.undirected()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = grbuild.add_node(g, "c").0
+    g = match grbuild.add_edge(g, 0, 1, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 2, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 0, 2, 5.0)
+        Ok(r)  => r.0
+        Err(_) => g
+
+    test.case("three nodes are spanned by two edges, the two that cost one")
+    match grpath.minimum_spanning_forest(g, edge_cost)
+        Err(_) => test.assert(false)
+        Ok(es) =>
+            test.assert(list.len(es) == 2)
+            match grpath.spanning_cost(g, es, edge_cost)
+                Ok(c)  => test.assert(c == 2.0)
+                Err(_) => test.assert(false)
+
+    test.case("a breadth-first spanning tree from a node has one edge per other node")
+    match grpath.spanning_tree_from(g, 0, GrOutgoing, grwalk.all_nodes)
+        Ok(es) => test.assert(list.len(es) == 2)
+        Err(_) => test.assert(false)
+
+@test
+fn test_a_straight_line_is_a_heuristic_that_never_overestimates() [io]
+    let ps = [geompoint.ptf(0.0, 0.0), geompoint.ptf(3.0, 4.0)]
+
+    test.case("the distance between two positions")
+    test.assert(grpath.straight_line(ps, 0, 1) == 5.0)
+
+    test.case("the zero heuristic is consistent over every edge, so no edge is named")
+    test.assert(list.len(grpath.heuristic_is_consistent(diamond(), edge_cost,
+                                                        grpath.zero_heuristic)) == 0)
+
+@test
+fn test_a_fault_names_what_was_wrong_in_the_callers_own_terms() [io]
+    test.case("a missing node is a fault about the caller's arguments")
+    let missing = grfault.no_such_node(7, 3)
+    test.assert(grfault.is_about_the_graph(missing) == false)
+
+    test.case("and it has no cycle to render")
+    test.assert(list.len(grfault.cycle_of(missing)) == 0)
+
+    test.case("a cycle renders with the caller's own names, back to where it began")
+    test.assert(grfault.cycle_text(GrCyclic([0, 1]), ["a", "b"]) == "a -> b -> a")

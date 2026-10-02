@@ -92,7 +92,7 @@ pub fn dot_bound<N, E>(g: GrGraph<N, E>, node_labels: [Str], edge_labels: [Str],
 // half-written DOT file is worse than none, because it parses up to the
 // truncation and draws a graph that is missing edges.
 pub fn write_graph<N, E>(g: GrGraph<N, E>, node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
-                         mut dst: Cursor) -> Result<Int, GrFault>
+                         var dst: Cursor) -> Result<Int, GrFault>
     todo("graph-nv.grdot.write_graph")
 
 // The graph as DOT with a `pos` attribute per node, from a layout.
@@ -103,7 +103,7 @@ pub fn write_graph<N, E>(g: GrGraph<N, E>, node_labels: [Str], edge_labels: [Str
 // produces something reasonable.
 pub fn write_graph_with_layout<N, E>(g: GrGraph<N, E>, positions: [geompoint.GeomPointF],
                                      node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
-                                     mut dst: Cursor) -> Result<Int, GrFault>
+                                     var dst: Cursor) -> Result<Int, GrFault>
     todo("graph-nv.grdot.write_graph_with_layout")
 
 // A subgraph as DOT, for a caller dumping one component or one
@@ -115,7 +115,7 @@ pub fn write_graph_with_layout<N, E>(g: GrGraph<N, E>, positions: [geompoint.Geo
 // `write_graph` over `grbuild.subgraph`.
 pub fn write_clusters<N, E>(g: GrGraph<N, E>, clusters: [[Int]], cluster_labels: [Str],
                             node_labels: [Str], edge_labels: [Str], o: GrDotOptions,
-                            mut dst: Cursor) -> Result<Int, GrFault>
+                            var dst: Cursor) -> Result<Int, GrFault>
     todo("graph-nv.grdot.write_clusters")
 
 // ── Identifiers ─────────────────────────────────────────────────────

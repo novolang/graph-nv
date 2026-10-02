@@ -306,3 +306,123 @@ fn test_dijkstra_refuses_a_negative_weight_rather_than_answering_wrongly() [io]
                                grwalk.all_nodes)
         Ok(p)  => test.assert(list.len(p.nodes) == 0)
         Err(_) => test.assert(false)
+
+@test
+fn test_the_bulk_constructors_build_the_graph_one_call_at_a_time_would() [io]
+    test.case("with_capacity reserves room and holds nothing yet")
+    let reserved: GrGraph<Str, Float> = grbuild.with_capacity(GrDirected, 16, 32)
+    test.assert(grbuild.node_count(reserved) == 0)
+    test.assert(grbuild.edge_count(reserved) == 0)
+
+    test.case("and the kind it was given is the kind it has")
+    test.assert(grbuild.is_directed(reserved))
+    let plain: GrGraph<Str, Float> = grbuild.undirected()
+    test.assert(grbuild.is_directed(plain) == false)
+
+    test.case("of_edges takes the node weights and the edge list a file arrives as")
+    let edges = [GrEdge { source: 0, target: 1, weight: 1.0 },
+                 GrEdge { source: 1, target: 2, weight: 1.0 },
+                 GrEdge { source: 0, target: 2, weight: 5.0 }]
+    match grbuild.of_edges(GrDirected, ["a", "b", "c"], edges)
+        Err(_) => test.assert(false)
+        Ok(h)  =>
+            let built: GrGraph<Str, Float> = h
+            test.assert(grbuild.node_count(built) == 3)
+            test.assert(grbuild.edge_count(built) == 3)
+            test.assert(grbuild.has_edge(built, 0, 2))
+            test.assert(grbuild.has_edge(built, 2, 0) == false)
+
+@test
+fn test_an_edge_is_read_by_index_and_removed_by_swap() [io]
+    let g = diamond()
+
+    test.case("edge_at answers the endpoints and the weight")
+    match grbuild.edge_at(g, 2)
+        Err(_) => test.assert(false)
+        Ok(e)  =>
+            test.assert(e.source == 0)
+            test.assert(e.target == 2)
+            test.assert(e.weight == 5.0)
+
+    test.case("an edge index that is not there is refused")
+    match grbuild.edge_at(g, 7)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+    test.case("removing edge 0 moves the last edge into its index, and says so")
+    match grbuild.remove_edge(g, 0)
+        Err(_) => test.assert(false)
+        Ok(r)  =>
+            let removal: GrRemoval<Str, Float> = r
+            test.assert(removal.removed == 0)
+            test.assert(removal.moved_from == 2)
+            let after: GrGraph<Str, Float> = removal.graph
+            test.assert(grbuild.edge_count(after) == 2)
+            test.assert(grbuild.has_edge(after, 0, 1) == false)
+
+@test
+fn test_a_weight_is_replaced_in_place_and_every_index_stays_put() [io]
+    let g = diamond()
+
+    test.case("a node's weight")
+    match grbuild.set_node_weight(g, 1, "B")
+        Err(_) => test.assert(false)
+        Ok(h)  =>
+            let renamed: GrGraph<Str, Float> = h
+            match grbuild.node_weight(renamed, 1)
+                Ok(w)  =>
+                    let name: Str = w
+                    test.assert(name == "B")
+                Err(_) => test.assert(false)
+
+    test.case("an edge's weight")
+    match grbuild.set_edge_weight(g, 2, 2.5)
+        Err(_) => test.assert(false)
+        Ok(h)  =>
+            let cheaper: GrGraph<Str, Float> = h
+            match grbuild.edge_at(cheaper, 2)
+                Ok(e)  => test.assert(e.weight == 2.5)
+                Err(_) => test.assert(false)
+
+    test.case("a node that is not there is refused rather than appended")
+    match grbuild.set_node_weight(g, 9, "z")
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_a_subgraph_is_renumbered_from_zero_and_carries_its_mapping() [io]
+    let g = diamond()
+
+    match grbuild.subgraph(g, [0, 2])
+        Err(_) => test.assert(false)
+        Ok(r)  =>
+            let sub: GrGraph<Str, Float> = r.0
+
+            test.case("two nodes, and only the edge between them")
+            test.assert(grbuild.node_count(sub) == 2)
+            test.assert(grbuild.edge_count(sub) == 1)
+
+            test.case("the original node 2 is node 1 now")
+            match grbuild.node_weight(sub, 1)
+                Ok(w)  =>
+                    let name: Str = w
+                    test.assert(name == "c")
+                Err(_) => test.assert(false)
+
+            test.case("and the mapping is there to relate the two")
+            test.assert(list.len(r.1) > 0)
+
+@test
+fn test_check_graph_finds_what_a_hand_built_graph_contradicts() [io]
+    test.case("a graph built through grbuild contradicts nothing")
+    test.assert(list.len(grbuild.check_graph(diamond())) == 0)
+
+    test.case("an edge naming a node that is not there is found")
+    let broken: GrGraph<Str, Float> = GrGraph {
+        kind: GrDirected,
+        nodes: ["a"],
+        edges: [GrEdge { source: 0, target: 3, weight: 1.0 }],
+        out_edges: [[0]],
+        in_edges: [[]],
+        live: [] }
+    test.assert(list.len(grbuild.check_graph(broken)) > 0)

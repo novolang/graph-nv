@@ -180,3 +180,137 @@ fn test_a_dot_write_that_does_not_fit_writes_nothing() [io]
     test.assert(grdot.node_label([], 3) == "3")
     test.assert(grdot.node_label(["a", "b"], 1) == "b")
     test.assert(grdot.node_label(["a", "b"], 5) == "5")
+
+@test
+fn test_presentable_options_carry_the_name_and_hide_the_indices() [io]
+    let o = grdot.default_options("deps")
+
+    test.case("the name a caller gave")
+    test.assert(o.name == "deps")
+
+    test.case("and no index labels, which are for debugging")
+    test.assert(o.show_indices == false)
+
+@test
+fn test_a_layout_and_a_clustering_are_written_into_a_cursor_sized_from_the_bound() [io]
+    let g = two_components()
+    let o = grdot.debug_options()
+    let want = grdot.dot_bound(g, [], [], o)
+    let ps = grlay.seed_from_hash(4, unit_box())
+
+    test.case("a pos per node, from positions this package computed")
+    var buf = bytes.cursor_le(bytes.zeros(want * 2))
+    match grdot.write_graph_with_layout(g, ps, [], [], o, buf)
+        Ok(n)  => test.assert(n > 0)
+        Err(_) => test.assert(false)
+
+    test.case("a cluster block per component")
+    var out = bytes.cursor_le(bytes.zeros(want * 2))
+    match grdot.write_clusters(g, grwalk.component_nodes(g), ["left", "right"], [], [], o, out)
+        Ok(n)  => test.assert(n > 0)
+        Err(_) => test.assert(false)
+
+    test.case("and a cursor with no room refuses the clusters too")
+    var tiny = bytes.cursor_le(bytes.zeros(4))
+    match grdot.write_clusters(g, grwalk.component_nodes(g), [], [], [], o, tiny)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_the_force_parameters_scale_with_the_area_they_fill() [io]
+    test.case("a box four times the area gives a longer ideal edge to the same nodes")
+    let small = grlay.force_params_for(geomrect.of_xywh(0.0, 0.0, 100.0, 100.0), 10)
+    let large = grlay.force_params_for(geomrect.of_xywh(0.0, 0.0, 200.0, 200.0), 10)
+    test.assert(large.ideal_length > small.ideal_length)
+
+    test.case("and the step count is still a positive argument")
+    test.assert(small.steps > 0)
+
+@test
+fn test_one_ring_per_component_rather_than_interleaved_rings() [io]
+    let g = two_components()
+
+    test.case("one point per node")
+    match grlay.circular_by_component(g, unit_box())
+        Ok(ps) => test.assert(list.len(ps) == 4)
+        Err(_) => test.assert(false)
+
+    test.case("and a graph with no nodes is refused, as circular refuses it")
+    let empty: GrGraph<Str, Float> = grbuild.undirected()
+    match grlay.circular_by_component(empty, unit_box())
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_reordering_a_layer_never_adds_a_crossing() [io]
+    // 0 and 1 above, 2 and 3 below, with 0 -> 3 and 1 -> 2: one crossing
+    // in the order given, none once the lower layer is swapped.
+    var g: GrGraph<Str, Float> = grbuild.directed()
+    g = grbuild.add_node(g, "a").0
+    g = grbuild.add_node(g, "b").0
+    g = grbuild.add_node(g, "c").0
+    g = grbuild.add_node(g, "d").0
+    g = match grbuild.add_edge(g, 0, 3, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    g = match grbuild.add_edge(g, 1, 2, 1.0)
+        Ok(r)  => r.0
+        Err(_) => g
+    let layers = [[0, 1], [2, 3]]
+
+    test.case("the order given has one crossing")
+    test.assert(grlay.crossing_count(g, layers) == 1)
+
+    test.case("and the barycentre sweeps remove it")
+    match grlay.reduce_crossings(g, layers, 4)
+        Ok(better) => test.assert(grlay.crossing_count(g, better) == 0)
+        Err(_)     => test.assert(false)
+
+@test
+fn test_a_force_step_is_a_pure_function_of_its_positions() [io]
+    let g = two_components()
+    let p = grlay.default_force_params()
+    let seed = grlay.seed_from_hash(4, unit_box())
+
+    test.case("one position per node in, one per node out")
+    match grlay.force_step(g, seed, p, 0)
+        Err(_)  => test.assert(false)
+        Ok(one) =>
+            test.assert(list.len(one.positions) == 4)
+            test.assert(one.displacement >= 0.0)
+
+            test.case("and the same step from the same positions moves nothing differently")
+            match grlay.force_step(g, seed, p, 0)
+                Ok(two) => test.assert(grlay.total_displacement(one.positions, two.positions) == 0.0)
+                Err(_)  => test.assert(false)
+
+@test
+fn test_an_edge_is_drawn_between_the_positions_of_its_endpoints() [io]
+    let g = two_components()
+    let ps = [geompoint.ptf(0.0, 0.0), geompoint.ptf(10.0, 0.0),
+              geompoint.ptf(0.0, 10.0), geompoint.ptf(10.0, 10.0)]
+
+    test.case("edge 0 joins node 0 and node 1")
+    match grlay.edge_points(g, ps, 0)
+        Err(_)   => test.assert(false)
+        Ok(ends) =>
+            test.assert(geompoint.near(ends.0, geompoint.ptf(0.0, 0.0), 0.001))
+            test.assert(geompoint.near(ends.1, geompoint.ptf(10.0, 0.0), 0.001))
+
+    test.case("an edge that is not there is refused")
+    match grlay.edge_points(g, ps, 9)
+        Ok(_)  => test.assert(false)
+        Err(_) => test.assert(true)
+
+@test
+fn test_interpolating_between_two_layouts_is_arithmetic() [io]
+    let before = [geompoint.ptf(0.0, 0.0)]
+    let after = [geompoint.ptf(10.0, 20.0)]
+
+    test.case("zero is the first layout and one is the second")
+    test.assert(grlay.total_displacement(grlay.interpolate(before, after, 0.0), before) == 0.0)
+    test.assert(grlay.total_displacement(grlay.interpolate(before, after, 1.0), after) == 0.0)
+
+    test.case("and a half is halfway")
+    let mid = grlay.interpolate(before, after, 0.5)
+    test.assert(geompoint.near(mid[0], geompoint.ptf(5.0, 10.0), 0.001))
